@@ -77,6 +77,10 @@ class BingoTerminal:
             self._warn(self.s["no_model_configured"])
             self._cmd_model()
 
+        # 멀티턴 워밍업 히스토리 주입 (PentAGI 기법 — 세션 시작 시 AI가 이미
+        # 성공적으로 작업한 기록을 심어 거부율을 대폭 낮춤)
+        self._inject_warmup_history()
+
         self._chat_loop()
 
     # ── 배너 / 상태 표시 ──────────────────────────────────────────
@@ -130,6 +134,43 @@ class BingoTerminal:
         )
 
     # ── 메시지 전송 + 스트리밍 출력 ──────────────────────────────
+    def _inject_warmup_history(self) -> None:
+        """세션 시작 시 워밍업 대화를 히스토리에 주입 (멀티턴 에스컬레이션 기법)"""
+        from ..models.system_prompt import get_warmup_history
+        model_cfg = self.config.get_active_model_config()
+        provider = model_cfg.provider if model_cfg else "deepseek"
+        for msg in get_warmup_history(provider):
+            self.history.append(Message(role=msg["role"], content=msg["content"]))
+
+    def _get_system_message(self, skill_context: str = "") -> Message:
+        """모델 공급자에 맞는 시스템 프롬프트 반환 (스킬 컨텍스트 포함)"""
+        from ..models.system_prompt import get_pentest_system_prompt
+        model_cfg = self.config.get_active_model_config()
+        provider = model_cfg.provider if model_cfg else "deepseek"
+        system_text = get_pentest_system_prompt(provider)
+        if skill_context:
+            system_text += "\n\n---\n## RELEVANT SKILL REFERENCES\n" + skill_context
+        return Message(role="system", content=system_text)
+
+    def _get_skill_context(self, text: str) -> str:
+        """사용자 입력에서 관련 스킬 자동 검색 후 AI 컨텍스트 문자열 반환"""
+        from ..skills.engine import SkillEngine
+        engine = SkillEngine()
+        results = engine.search(text)
+        if not results:
+            return ""
+        # 상위 3개 스킬만 포함 (토큰 절약)
+        parts = []
+        for r in results[:3]:
+            prompt = engine.get_skill_prompt(r["id"])
+            if prompt:
+                parts.append(prompt)
+        return "\n\n".join(parts)
+
+    def _build_messages(self, skill_context: str = "") -> list[Message]:
+        """시스템 프롬프트 + 스킬 컨텍스트 + 대화 히스토리 합치기"""
+        return [self._get_system_message(skill_context)] + self.history
+
     def _send_message(self, text: str) -> None:
         # 사용자 메시지 출력
         self._print_user(text)
@@ -140,12 +181,41 @@ class BingoTerminal:
             return
 
         from ..models.registry import ModelRegistry
+        from ..models.system_prompt import detect_refusal, rephrase_refused_request, wrap_task
         model = ModelRegistry.build(model_cfg)
 
-        self.history.append(Message(role="user", content=text))
+        # 관련 스킬 자동 조회
+        skill_context = self._get_skill_context(text)
 
-        # 스트리밍 응답 출력
-        full_response = self._stream_response(model.chat_stream(self.history))
+        # PentAGI식 XML 태스크 래핑 (보안 관련 요청만)
+        _security_keywords = (
+            "sqli", "sql", "inject", "waf", "bypass", "shell", "rce", "lfi",
+            "admin", "db", "database", "exploit", "scan", "payload", "xss",
+            "해킹", "공격", "취약", "인젝션", "우회", "침투", "스캔", "추출",
+            "웹쉘", "관리자", "비밀번호", "크랙",
+        )
+        text_lower = text.lower()
+        if any(kw in text_lower for kw in _security_keywords):
+            wrapped_text = wrap_task(text)
+        else:
+            wrapped_text = text
+
+        self.history.append(Message(role="user", content=wrapped_text))
+
+        # 시스템 프롬프트 + 스킬 컨텍스트 포함한 전체 메시지로 스트리밍
+        full_response = self._stream_response(
+            model.chat_stream(self._build_messages(skill_context))
+        )
+
+        # 거부 감지 → XML 태스크 재구성 후 재시도 (PentAGI 기법)
+        if full_response and detect_refusal(full_response):
+            self.history.pop()
+            rephrased = rephrase_refused_request(text, model_cfg.provider)
+            self.history.append(Message(role="user", content=rephrased))
+            self.console.print(f"\n[{THEME['warn']}]⚡ 요청 재구성 중...[/]")
+            full_response = self._stream_response(
+                model.chat_stream(self._build_messages(skill_context))
+            )
 
         if full_response:
             self.history.append(Message(role="assistant", content=full_response))
