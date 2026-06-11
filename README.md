@@ -112,15 +112,14 @@ Every chat session is automatically saved to:
 Full AI responses, commands, and crack results are logged in real time.
 
 ### Skill Engine
-220+ red team skills auto-injected into AI context based on your input.  
-Skills sourced from TianTi, Cairn, PentAGI, RedteamAgent, and custom knowledge bases.
+220+ red team skills auto-injected into AI context based on your input.
 
 ### AI Refusal Bypass
-All models (DeepSeek, Claude, GPT, GLM) use a universal system prompt built from:
-- **PentAGI** — XML task structure, multi-agent delegation
-- **Cairn** — OODA loop, never-reject mandate
-- **TianTi** — Anti-Laziness framework, coverage enforcement
-- **RedteamAgent** — 5-phase pipeline, intel accumulation
+All models (DeepSeek, Claude, GPT, GLM) are guided by a proprietary universal system prompt that enforces:
+- Structured task execution with XML semantic delimiters
+- OODA-loop based decision making (Observe → Orient → Decide → Act)
+- Anti-laziness enforcement — explicit evidence required for every step
+- 5-phase red team pipeline with intel accumulation and coverage tracking
 
 ---
 
