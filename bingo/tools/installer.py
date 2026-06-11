@@ -12,15 +12,15 @@ from typing import Callable
 
 
 def _run(cmd: list[str], log: Callable[[str], None]) -> bool:
-    log(f"  실행: {' '.join(cmd)}")
+    log(f"  Running: {' '.join(cmd)}")
     try:
         proc = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
         if proc.returncode == 0:
             return True
-        log(f"  오류: {(proc.stderr or proc.stdout)[:200]}")
+        log(f"  Error: {(proc.stderr or proc.stdout)[:200]}")
         return False
     except Exception as e:
-        log(f"  실패: {e}")
+        log(f"  Failed: {e}")
         return False
 
 
@@ -35,7 +35,7 @@ def _pip_install(pkg: str, log: Callable[[str], None]) -> bool:
 
 def _brew_install(pkg: str, log: Callable[[str], None]) -> bool:
     if not shutil.which("brew"):
-        log("  brew 없음")
+        log("  brew not found")
         return False
     return _run(["brew", "install", "-q", pkg], log)
 
@@ -58,17 +58,17 @@ _RECIPES: dict[str, dict] = {
     "nmap": {
         "macos":   lambda log: _brew_install("nmap", log),
         "linux":   lambda log: _apt_install("nmap", log) or _yum_install("nmap", log),
-        "windows": lambda log: log("  nmap: https://nmap.org/download.html 에서 설치") or False,
+        "windows": lambda log: log("  nmap: install from https://nmap.org/download.html") or False,
     },
     "nikto": {
         "macos":   lambda log: _brew_install("nikto", log),
         "linux":   lambda log: _apt_install("nikto", log) or _yum_install("nikto", log),
-        "windows": lambda log: log("  nikto: Linux/macOS 전용") or False,
+        "windows": lambda log: log("  nikto: Linux/macOS only") or False,
     },
     "whatweb": {
         "macos":   lambda log: _brew_install("whatweb", log),
         "linux":   lambda log: _apt_install("whatweb", log) or _yum_install("whatweb", log),
-        "windows": lambda log: log("  whatweb: Linux/macOS 전용") or False,
+        "windows": lambda log: log("  whatweb: Linux/macOS only") or False,
     },
     "sqlmap": {
         "macos":   lambda log: _pip_install("sqlmap", log),
@@ -94,8 +94,8 @@ def install_tool(name: str, log: Callable[[str], None] | None = None) -> bool:
     fn = recipe.get(os_name)
 
     if fn:
-        log(f"  {name}: {os_name} 패키지 매니저로 설치 시도...")
+        log(f"  {name}: attempting install via {os_name} package manager...")
         return fn(log)
 
-    log(f"  {name}: 자동 설치 미지원 ({os_name})")
+    log(f"  {name}: auto-install not supported on {os_name}")
     return False

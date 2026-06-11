@@ -84,7 +84,7 @@ def _get_latest_version(repo: str) -> str | None:
 def _download_file(url: str, dest: Path, log: Callable[[str], None]) -> bool:
     """파일 다운로드 with 진행률"""
     try:
-        log(f"  다운로드: {url}")
+        log(f"  Downloading: {url}")
         req = urllib.request.Request(url, headers={"User-Agent": "bingo-installer"})
         with urllib.request.urlopen(req, timeout=60) as resp:
             total = int(resp.headers.get("Content-Length", 0))
@@ -102,7 +102,7 @@ def _download_file(url: str, dest: Path, log: Callable[[str], None]) -> bool:
                         log(f"  {pct}%  ({downloaded // 1024}KB / {total // 1024}KB)")
         return True
     except Exception as e:
-        log(f"  다운로드 실패: {e}")
+        log(f"  Download failed: {e}")
         return False
 
 
@@ -118,7 +118,7 @@ def _extract_binary(archive: Path, binary_name: str, dest_dir: Path, log: Callab
                         out = dest_dir / base
                         out.write_bytes(zf.read(name))
                         out.chmod(out.stat().st_mode | stat.S_IEXEC)
-                        log(f"  추출: {out}")
+                        log(f"  Extracted: {out}")
                         return out
         elif archive.name.endswith(".tar.gz"):
             with tarfile.open(archive, "r:gz") as tf:
@@ -130,10 +130,10 @@ def _extract_binary(archive: Path, binary_name: str, dest_dir: Path, log: Callab
                             out = dest_dir / base
                             out.write_bytes(f.read())
                             out.chmod(out.stat().st_mode | stat.S_IEXEC)
-                            log(f"  추출: {out}")
+                            log(f"  Extracted: {out}")
                             return out
     except Exception as e:
-        log(f"  추출 실패: {e}")
+        log(f"  Extraction failed: {e}")
     return None
 
 
@@ -148,27 +148,25 @@ def download_tool(
     log = log or (lambda s: print(s))
     info = GO_TOOLS.get(name)
     if not info:
-        log(f"  {name}: 자동 다운로드 미지원")
+        log(f"  {name}: auto-download not supported")
         return None
 
     os_name, arch = _get_platform()
-    log(f"  플랫폼: {os_name}/{arch}")
+    log(f"  Platform: {os_name}/{arch}")
 
-    # 이미 다운로드됐는지 확인
     binary = TOOLS_DIR / (info["binary"] + (".exe" if os_name == "windows" else ""))
     if binary.exists():
-        log(f"  {name}: 이미 설치됨 ({binary})")
+        log(f"  {name}: already installed ({binary})")
         return binary
 
     TOOLS_DIR.mkdir(parents=True, exist_ok=True)
 
-    # 최신 버전 조회
-    log(f"  {name}: 최신 버전 조회 중...")
+    log(f"  {name}: checking latest version...")
     version = _get_latest_version(info["repo"])
     if not version:
-        log(f"  버전 조회 실패")
+        log(f"  Version lookup failed")
         return None
-    log(f"  최신 버전: v{version}")
+    log(f"  Latest: v{version}")
 
     # 다운로드 URL 구성
     ext = ".zip" if os_name != "linux" or name not in ("ffuf", "gobuster") else ".tar.gz"
@@ -191,10 +189,9 @@ def download_tool(
             break
 
     if not success:
-        log(f"  {name}: 다운로드 실패 (모든 URL 시도)")
+        log(f"  {name}: download failed (all URLs tried)")
         return None
 
-    # 바이너리 추출
     result = _extract_binary(archive_path, b_name, TOOLS_DIR, log)
     try:
         archive_path.unlink()
@@ -202,5 +199,5 @@ def download_tool(
         pass
 
     if result:
-        log(f"  {name}: 설치 완료 → {result}")
+        log(f"  {name}: installed → {result}")
     return result

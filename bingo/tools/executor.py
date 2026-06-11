@@ -330,20 +330,20 @@ class ToolExecutor:
         fallback_fn = _PYTHON_FALLBACKS.get(tool)
         if fallback_fn:
             if on_line:
-                on_line(f"[{tool}] 자동 설치 실패 → Python 폴백 실행 중...")
+                on_line(f"[{tool}] Auto-install failed → Running Python fallback...")
             return fallback_fn(args)
 
-        # 완전 실패
+        # complete failure
         return ToolResult(
             tool=tool, command=[], stdout="",
-            stderr=f"{tool}: 설치 안 됨, 폴백 없음. 수동 설치: {info.install_hint}",
+            stderr=f"{tool}: not installed, no fallback. Manual install: {info.install_hint}",
             returncode=-1, elapsed=0, success=False,
         )
 
     def _auto_install(self, tool: str, log_fn: Callable[[str], None] | None) -> str | None:
         """자동 설치 시도 — 성공 시 바이너리 경로 반환"""
         log = log_fn or (lambda s: None)
-        log(f"[{tool}] 설치 안 됨 → 자동 설치 시도...")
+        log(f"[{tool}] Not installed → attempting auto-install...")
 
         # Go 바이너리 — GitHub Releases 다운로드
         if tool in _GO_TOOLS:

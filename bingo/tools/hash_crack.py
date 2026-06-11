@@ -121,9 +121,9 @@ def _crack_simple(hash_info: HashInfo, wordlist_path: Path | None,
             return CrackResult(hash_info.raw, hash_info.hash_type, True,
                                pwd, "builtin_list", time.time() - start)
 
-    # 워드리스트
+    # wordlist
     if wordlist_path:
-        log(f"  [crack] 워드리스트 로드 중: {wordlist_path} ...")
+        log(f"  [crack] Loading wordlist: {wordlist_path} ...")
         try:
             with open(wordlist_path, "r", encoding="latin-1", errors="ignore") as f:
                 for i, line in enumerate(f):
@@ -132,7 +132,7 @@ def _crack_simple(hash_info: HashInfo, wordlist_path: Path | None,
                         return CrackResult(hash_info.raw, hash_info.hash_type, True,
                                            pwd, "wordlist", time.time() - start)
                     if i % 500_000 == 0 and i > 0:
-                        log(f"  [crack] {i:,}개 시도 중...")
+                        log(f"  [crack] Trying {i:,} ...")
         except Exception as e:
             return CrackResult(hash_info.raw, hash_info.hash_type, False,
                                error=str(e), elapsed=time.time() - start)
@@ -149,7 +149,7 @@ def _crack_bcrypt(hash_info: HashInfo, wordlist_path: Path | None,
     # hashcat 시도
     hashcat_bin = _find_binary(["hashcat"])
     if hashcat_bin and wordlist_path:
-        log(f"  [crack] hashcat으로 bcrypt 크랙 시작 (느릴 수 있음)...")
+        log(f"  [crack] Starting bcrypt crack with hashcat (may be slow)...")
         tmp_hash = Path("/tmp/bingo_hash.txt")
         tmp_hash.write_text(hash_info.raw + "\n")
         cmd = [
@@ -166,31 +166,30 @@ def _crack_bcrypt(hash_info: HashInfo, wordlist_path: Path | None,
                     return CrackResult(hash_info.raw, "bcrypt", True,
                                        plaintext, "hashcat", time.time() - start)
         except subprocess.TimeoutExpired:
-            log("  [crack] hashcat 타임아웃 — Python 폴백")
+            log("  [crack] hashcat timeout — falling back to Python")
         except Exception as e:
-            log(f"  [crack] hashcat 오류: {e}")
+            log(f"  [crack] hashcat error: {e}")
 
-    # Python bcrypt 폴백
+    # Python bcrypt fallback
     try:
         import bcrypt as _bcrypt
         passwords = _BUILTIN_PASSWORDS[:]
         if wordlist_path:
             try:
                 with open(wordlist_path, "r", encoding="latin-1", errors="ignore") as f:
-                    # bcrypt는 매우 느리므로 상위 10만개만
                     passwords += [l.rstrip("\n") for _, l in zip(range(100_000), f)]
             except Exception:
                 pass
-        log(f"  [crack] bcrypt Python 크랙 ({len(passwords):,}개 시도)...")
+        log(f"  [crack] bcrypt Python crack ({len(passwords):,} candidates)...")
         encoded = hash_info.raw.encode()
         for i, pwd in enumerate(passwords):
             if _bcrypt.checkpw(pwd.encode(), encoded):
                 return CrackResult(hash_info.raw, "bcrypt", True,
                                    pwd, "python_bcrypt", time.time() - start)
             if i % 1000 == 0 and i > 0:
-                log(f"  [crack] bcrypt {i:,}개 시도...")
+                log(f"  [crack] bcrypt {i:,} tried...")
     except ImportError:
-        log("  [crack] bcrypt 모듈 없음 — pip install bcrypt")
+        log("  [crack] bcrypt module not found — pip install bcrypt")
 
     return CrackResult(hash_info.raw, "bcrypt", False,
                        method="exhausted", elapsed=time.time() - start)
@@ -209,7 +208,7 @@ def _crack_with_john(hash_info: HashInfo, wordlist_path: Path | None,
         cmd += [f"--wordlist={wordlist_path}"]
     try:
         start = time.time()
-        log(f"  [crack] john 실행 중...")
+        log(f"  [crack] Running john...")
         subprocess.run(cmd, capture_output=True, timeout=60)
         # john --show
         show = subprocess.run([john_bin, "--show", str(tmp_hash)],
@@ -221,7 +220,7 @@ def _crack_with_john(hash_info: HashInfo, wordlist_path: Path | None,
                     return CrackResult(hash_info.raw, hash_info.hash_type, True,
                                        parts[1], "john", time.time() - start)
     except Exception as e:
-        log(f"  [crack] john 오류: {e}")
+        log(f"  [crack] john error: {e}")
     return None
 
 
@@ -250,12 +249,12 @@ class HashCracker:
     def crack(self, hash_value: str) -> CrackResult:
         """단일 해시 크랙"""
         info = detect_hash_type(hash_value.strip())
-        self.log(f"  [crack] 해시 타입: {info.hash_type}")
+        self.log(f"  [crack] Hash type: {info.hash_type}")
 
         if self.wordlist:
-            self.log(f"  [crack] 워드리스트: {self.wordlist}")
+            self.log(f"  [crack] Wordlist: {self.wordlist}")
         else:
-            self.log("  [crack] 워드리스트 없음 — 내장 패스워드만 사용")
+            self.log("  [crack] No wordlist — using built-in passwords only")
 
         # john 먼저 시도 (빠름)
         john_result = _crack_with_john(info, self.wordlist, self.log)
@@ -268,7 +267,7 @@ class HashCracker:
         elif info.hash_type in ("md5", "sha1", "sha256", "sha512", "ntlm", "md5crypt"):
             return _crack_simple(info, self.wordlist, self.log)
         else:
-            self.log(f"  [crack] 미지원 타입: {info.hash_type}")
+            self.log(f"  [crack] Unsupported hash type: {info.hash_type}")
             return CrackResult(hash_value, info.hash_type, False,
                                error="unsupported hash type")
 
@@ -284,19 +283,23 @@ class HashCracker:
 def extract_hashes_from_text(text: str) -> list[str]:
     """
     텍스트에서 해시값 자동 추출
-    AI 응답 / 덤프 결과 등에서 해시를 파싱
+    AI 응답 / 덤프 결과 / 마크다운 테이블 등에서 해시를 파싱
     """
     patterns = [
-        r"\$2[yba]\$\d{2}\$[./A-Za-z0-9]{53}",   # bcrypt
-        r"\$1\$[^$\s]+\$[./A-Za-z0-9]+",           # md5crypt
-        r"\$6\$[^$\s]+\$[./A-Za-z0-9]+",           # sha512crypt
-        r"\*[0-9A-Fa-f]{40}",                       # MySQL41
-        r"\b[0-9a-f]{128}\b",                       # SHA-512
-        r"\b[0-9a-f]{64}\b",                        # SHA-256
-        r"\b[0-9a-f]{40}\b",                        # SHA-1
-        r"\b[0-9A-Fa-f]{32}\b",                     # MD5 / NTLM
+        # bcrypt: $2y$10$<53chars> — {50,60}으로 유연하게 처리 (마크다운 테이블 잘림 대비)
+        r"\$2[yba]\$\d{2}\$[./A-Za-z0-9]{50,60}",
+        r"\$1\$[^$\s|]+\$[./A-Za-z0-9]+",           # md5crypt
+        r"\$6\$[^$\s|]+\$[./A-Za-z0-9]+",           # sha512crypt
+        r"\*[0-9A-Fa-f]{40}",                        # MySQL41
+        r"(?<![0-9a-fA-F])[0-9a-f]{128}(?![0-9a-fA-F])",   # SHA-512
+        r"(?<![0-9a-fA-F])[0-9a-f]{64}(?![0-9a-fA-F])",    # SHA-256
+        r"(?<![0-9a-fA-F])[0-9a-f]{40}(?![0-9a-fA-F])",    # SHA-1
+        r"(?<![0-9a-fA-F])[0-9a-fA-F]{32}(?![0-9a-fA-F])", # MD5 / NTLM
     ]
     found = []
     for pat in patterns:
-        found.extend(re.findall(pat, text))
+        matches = re.findall(pat, text)
+        # 마크다운 테이블 구분자(|)로 잘린 경우 정리
+        cleaned = [m.strip("| \t\n") for m in matches]
+        found.extend(cleaned)
     return list(dict.fromkeys(found))  # 중복 제거, 순서 유지

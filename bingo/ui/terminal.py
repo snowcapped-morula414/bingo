@@ -520,7 +520,7 @@ class BingoTerminal:
             self._stop_crack_flag.set()
             self.console.print(f"[{THEME['warn']}]{self.s['hash_stop_signal']}[/]")
         else:
-            self._warn(f"알 수 없는 명령어: {name}  (/help 참고)")
+            self._warn(self.s["cmd_unknown"].format(name=name))
 
     def _cmd_help(self) -> None:
         self.console.print(
@@ -676,7 +676,7 @@ class BingoTerminal:
 
     def _cmd_scan(self, url: str = "") -> None:
         if not url:
-            url = Prompt.ask(f"[{THEME['primary']}]타겟 URL[/]").strip()
+            url = Prompt.ask(f"[{THEME['primary']}]{self.s['target_url_prompt']}[/]").strip()
         if not url:
             return
 
@@ -726,7 +726,7 @@ class BingoTerminal:
 
     def _cmd_waf(self, url: str = "") -> None:
         if not url:
-            url = Prompt.ask(f"[{THEME['primary']}]타겟 URL[/]").strip()
+            url = Prompt.ask(f"[{THEME['primary']}]{self.s['target_url_prompt']}[/]").strip()
         if not url:
             return
 
@@ -741,8 +741,8 @@ class BingoTerminal:
             result = detector.detect(url)
 
         if result.detected:
-            self.console.print(f"[{THEME['error']}]탐지: {result.waf_type}  신뢰도: {result.confidence}[/]")
-            self.console.print(f"[{THEME['dim']}]증거: {result.evidence}[/]")
+            self.console.print(f"[{THEME['error']}]{self.s['waf_detected']}: {result.waf_type}  {self.s['waf_confidence']}: {result.confidence}[/]")
+            self.console.print(f"[{THEME['dim']}]{self.s['waf_evidence']}: {result.evidence}[/]")
             self.console.print(f"\n[{THEME['secondary']}]{self.s['waf_priority']}:[/]")
             for i, s in enumerate(result.bypass_priority, 1):
                 self.console.print(f"  {i}. {s}")
@@ -762,9 +762,9 @@ class BingoTerminal:
             # AI에게 우회 전략 물어보기
             bypass_summary = engine.get_bypass_summary(result.waf_type)
             ai_prompt = (
-                f"WAF 탐지됨: {result.waf_type}\n"
-                f"우회 시도 실패\n\n{bypass_summary}\n\n"
-                f"이 WAF에 대한 최적 우회 페이로드 5개를 제시해주세요."
+                f"WAF detected: {result.waf_type}\n"
+                f"Bypass attempts failed\n\n{bypass_summary}\n\n"
+                f"Provide 5 optimal bypass payloads for this WAF."
             )
             self.console.print(f"\n[{THEME['secondary']}]{self.s['waf_ai_request']}[/]")
             self._stream_response(ai_prompt)
@@ -809,20 +809,46 @@ class BingoTerminal:
 
         # ── Step 1: 온라인 조회 ──────────────────────────────────────
         self.console.print(f"[{THEME['secondary']}]  {self.s['hash_online']}[/]")
-        lookup = OnlineHashLookup(on_progress=log)
+
+        def log_visible(msg: str) -> None:
+            """온라인 조회 진행 상황 실시간 출력"""
+            if self._stop_crack_flag.is_set():
+                return
+            # 중요 메시지는 컬러로 강조
+            if "✓" in msg or "crackstation" in msg.lower() or "hashes.com" in msg.lower():
+                self.console.print(f"  [{THEME['dim']}]{msg}[/]")
+            elif "⚠" in msg or "불가" in msg or "불가능" in msg or "no_online" in msg.lower():
+                self.console.print(f"  [{THEME['warn']}]{msg}[/]")
+            elif "→" in msg:
+                self.console.print(f"  [{THEME['secondary']}]{msg}[/]")
+            else:
+                self.console.print(f"  [{THEME['dim']}]{msg}[/]")
+
+        lookup = OnlineHashLookup(on_progress=log_visible)
 
         for h in list(pending):
             if self._stop_crack_flag.is_set():
                 self.console.print(f"[{THEME['warn']}]{self.s['hash_stopped']}[/]")
                 return
+            self.console.print(
+                f"  [{THEME['dim']}]{self.s['hash_checking']}: {h[:35]}...[/]"
+            )
             result: LookupResult = lookup.lookup(h)
             if result.found and result.plaintext:
                 cracked[h] = result.plaintext
                 self.console.print(
                     f"  [{THEME['success']}]✓ [{result.source}] "
-                    f"{h[:25]}... → [bold]{result.plaintext}[/bold][/]"
+                    f"{h[:30]}... → [bold]{result.plaintext}[/bold][/]"
                 )
                 pending.remove(h)
+            elif result.error == "bcrypt_no_online":
+                self.console.print(
+                    f"  [{THEME['warn']}]{self.s['hash_bcrypt_no_online']}[/]"
+                )
+            else:
+                self.console.print(
+                    f"  [{THEME['dim']}]{self.s['hash_online_not_found']}[/]"
+                )
 
         # ── Step 2: 오프라인 크랙 ────────────────────────────────────
         if pending and not self._stop_crack_flag.is_set():
@@ -839,10 +865,14 @@ class BingoTerminal:
                 if result.cracked and result.plaintext:
                     cracked[h] = result.plaintext
                     self.console.print(
-                        f"  [{THEME['success']}]✓ [오프라인/{result.method}] "
-                        f"{h[:25]}... → [bold]{result.plaintext}[/bold][/]"
+                        f"  [{THEME['success']}]{self.s['hash_offline_ok'].format(method=result.method, h=h[:30], plain=result.plaintext)}[/]"
                     )
                     pending.remove(h)
+                else:
+                    err = result.error or self.s["hash_manual_unsolved"]
+                    self.console.print(
+                        f"  [{THEME['dim']}]{self.s['hash_offline_fail'].format(h=h[:30], err=err)}[/]"
+                    )
 
         # ── 결과 테이블 ──────────────────────────────────────────────
         if self._stop_crack_flag.is_set() and not cracked:
@@ -935,7 +965,7 @@ class BingoTerminal:
                         f"  [{THEME['success']}]✓ {h[:30]}... → [bold]{r.plaintext}[/bold][/]"
                     )
                 else:
-                    self.console.print(f"  [{THEME['dim']}]✗ {h[:30]}... 미해결[/]")
+                    self.console.print(f"  [{THEME['dim']}]✗ {h[:30]}... {self.s['hash_manual_unsolved']}[/]")
         else:
             # 파이프라인 (온라인 → 오프라인)
             self._auto_crack_pipeline(hashes)
@@ -1047,7 +1077,7 @@ class BingoTerminal:
         import shutil
 
         self.console.print(
-            f"[{THEME['secondary']}]  ▸ {tool_name}[/] 설치 시도...",
+            f"[{THEME['secondary']}]  ▸ {tool_name}[/] {self.s['install_trying']}",
             end=" "
         )
         log_lines: list[str] = []
@@ -1070,7 +1100,7 @@ class BingoTerminal:
                 from ..tools.installer import install_tool
                 success = install_tool(tool_name, log)
         except Exception as e:
-            log(f"오류: {e}")
+            log(f"{self.s['install_error']}: {e}")
 
         if success:
             ToolRegistry._cache.pop(tool_name, None)
@@ -1085,13 +1115,13 @@ class BingoTerminal:
         if keyword:
             results = engine.search(keyword)
             if results:
-                self.console.print(f"\n[{THEME['secondary']}]스킬 검색: {keyword}[/]")
+                self.console.print(f"\n[{THEME['secondary']}]{self.s['skill_search_result']}: {keyword}[/]")
                 for r in results[:15]:
                     self.console.print(f"  [{THEME['primary']}]{r['module']}[/] → {r['skill']}")
             else:
-                self.console.print(f"[{THEME['dim']}]'{keyword}' 검색 결과 없음[/]")
+                self.console.print(f"[{THEME['dim']}]{self.s['skill_no_result'].format(kw=keyword)}[/]")
         else:
-            table = Table(title=f"[{THEME['primary']}]CyberSecurity-Skills 39 모듈[/]",
+            table = Table(title=f"[{THEME['primary']}]{self.s['skill_module_title']}[/]",
                           border_style=THEME["primary"])
             table.add_column("ID", style=THEME["secondary"], width=4)
             table.add_column("모듈", style="white")
@@ -1099,7 +1129,7 @@ class BingoTerminal:
             for mod in engine.list_all():
                 table.add_row(mod["id"], mod["en"], str(len(mod["skills"])))
             self.console.print(table)
-            self.console.print(f"[{THEME['dim']}]/skill <키워드>  로 검색  예) /skill sqli[/]")
+            self.console.print(f"[{THEME['dim']}]{self.s['skill_search_hint']}[/]")
 
     # ── 유틸 ──────────────────────────────────────────────────────
     def _init_session(self) -> None:

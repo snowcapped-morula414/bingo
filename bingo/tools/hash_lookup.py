@@ -175,16 +175,24 @@ class OnlineHashLookup:
     def lookup(self, hash_val: str) -> LookupResult:
         h = hash_val.strip()
 
-        # bcrypt는 단방향 — 온라인 조회 불가
+        # bcrypt ($2y$/$2b$/$2a$) — includes per-hash salt, cannot be precomputed
         if h.startswith("$2"):
-            self.log(f"  [lookup] bcrypt는 온라인 조회 불가 → 오프라인 크랙으로 전환")
+            self.log(
+                f"  [online-lookup] ⚠ bcrypt detected — online DB lookup not possible\n"
+                f"  [online-lookup]   Reason: bcrypt embeds a unique salt per hash (precomputed lookup impossible)\n"
+                f"  [online-lookup]   → Switching to offline crack (john/hashcat/python)"
+            )
             return LookupResult(h, False, error="bcrypt_no_online")
 
-        # sha512crypt, md5crypt 도 건너뜀
+        # sha512crypt, md5crypt — also salted
         if h.startswith("$6$") or h.startswith("$1$"):
+            self.log(
+                f"  [online-lookup] ⚠ crypt hash detected — salted, online lookup not possible\n"
+                f"  [online-lookup]   → Switching to offline crack"
+            )
             return LookupResult(h, False, error="crypt_no_online")
 
-        self.log(f"  [lookup] 온라인 조회 시작: {h[:20]}...")
+        self.log(f"  [lookup] Starting online lookup: {h[:20]}...")
 
         # CrackStation (배치 처리 가능)
         self.log("  [lookup] → CrackStation")
@@ -223,12 +231,12 @@ class OnlineHashLookup:
         if r:
             return LookupResult(h, True, r, "cmd5.org")
 
-        self.log("  [lookup] 모든 사이트 조회 실패")
+        self.log("  [lookup] All sites exhausted — not found")
         return LookupResult(h, False)
 
     def lookup_many(self, hashes: list[str]) -> list[LookupResult]:
         results = []
         for i, h in enumerate(hashes, 1):
-            self.log(f"\n  [{i}/{len(hashes)}] 조회 중: {h[:30]}...")
+            self.log(f"\n  [{i}/{len(hashes)}] Looking up: {h[:30]}...")
             results.append(self.lookup(h))
         return results
