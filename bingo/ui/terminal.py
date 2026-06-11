@@ -22,6 +22,7 @@ from prompt_toolkit.history import FileHistory
 from prompt_toolkit.auto_suggest import AutoSuggestFromHistory
 from prompt_toolkit.styles import Style as PTStyle
 from prompt_toolkit.formatted_text import HTML
+from prompt_toolkit.completion import Completer, Completion, WordCompleter
 
 from ..models.base import Message, StreamChunk
 from ..lang.strings import get_strings, SUPPORTED_LANGS
@@ -57,6 +58,42 @@ PT_STYLE = PTStyle.from_dict({
 })
 
 
+SLASH_COMMANDS = [
+    ("/help",    "도움말 표시"),
+    ("/clear",   "화면 초기화"),
+    ("/model",   "AI 모델 변경"),
+    ("/config",  "설정 보기"),
+    ("/history", "대화 기록 보기"),
+    ("/export",  "대화 기록 파일로 저장"),
+    ("/lang",    "언어 변경"),
+    ("/scan",    "빠른 레드팀 스캔  /scan <url>"),
+    ("/waf",     "WAF 탐지 + 자동 우회  /waf <url>"),
+    ("/crack",   "해시 크랙  /crack [hash]  (인자 없으면 자동 추출)"),
+    ("/tools",   "설치된 도구 목록"),
+    ("/skill",   "스킬 검색  /skill <keyword>"),
+    ("/stop",    "자동 크랙 중단"),
+    ("/quit",    "종료"),
+]
+
+
+class _SlashCompleter(Completer):
+    """/ 입력 시 슬래시 명령어 자동완성 (설명 포함)"""
+
+    def get_completions(self, document, complete_event):
+        text = document.text_before_cursor
+        if not text.startswith("/"):
+            return
+        word = text.split()[0] if text.split() else "/"
+        for cmd, desc in SLASH_COMMANDS:
+            if cmd.startswith(word) or word == "/":
+                yield Completion(
+                    cmd,
+                    start_position=-len(word),
+                    display=cmd,
+                    display_meta=desc,
+                )
+
+
 class BingoTerminal:
     """Bingo 메인 터미널 UI"""
 
@@ -66,12 +103,17 @@ class BingoTerminal:
         self.console = Console(highlight=False)
         self.history: list[Message] = []
         self._session: PromptSession | None = None
+        # 자동 저장 경로 — 세션 시작 시 결정
+        self._session_log_path: Path | None = None
+        # 자동 크랙 중단 플래그
+        self._stop_crack_flag = threading.Event()
 
     # ── 공개 진입점 ───────────────────────────────────────────────
     def run(self) -> None:
         self._clear()
         self._print_banner()
         self._init_session()
+        self._init_session_log()
 
         if not self.config.get_active_model_config():
             self._warn(self.s["no_model_configured"])
@@ -105,6 +147,38 @@ class BingoTerminal:
             )
         )
 
+    # ── 세션 로그 ─────────────────────────────────────────────────
+    def _init_session_log(self) -> None:
+        """세션 시작 시 자동 저장 경로 초기화"""
+        logs_dir = Path.home() / ".config" / "bingo" / "sessions"
+        logs_dir.mkdir(parents=True, exist_ok=True)
+        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+        self._session_log_path = logs_dir / f"session_{ts}.md"
+        # 헤더 기록
+        model_cfg = self.config.get_active_model_config()
+        model_name = model_cfg.display_name() if model_cfg else "unknown"
+        header = (
+            f"# Bingo Session — {ts}\n"
+            f"**model:** {model_name}\n\n"
+            "---\n\n"
+        )
+        self._session_log_path.write_text(header, encoding="utf-8")
+        self.console.print(
+            f"[{THEME['dim']}]📝 세션 자동 저장: {self._session_log_path}[/]\n"
+        )
+
+    def _append_to_session_log(self, role: str, content: str) -> None:
+        """대화 한 턴을 세션 로그에 추가"""
+        if not self._session_log_path:
+            return
+        try:
+            ts = datetime.now().strftime("%H:%M:%S")
+            label = "**YOU**" if role == "user" else "**bingo**"
+            with open(self._session_log_path, "a", encoding="utf-8") as f:
+                f.write(f"### {label} `{ts}`\n{content}\n\n")
+        except Exception:
+            pass
+
     # ── 채팅 루프 ─────────────────────────────────────────────────
     def _chat_loop(self) -> None:
         while True:
@@ -112,6 +186,10 @@ class BingoTerminal:
                 user_input = self._get_input()
             except (KeyboardInterrupt, EOFError):
                 self.console.print(f"\n[{THEME['primary']}]{self.s['goodbye']}[/]")
+                if self._session_log_path:
+                    self.console.print(
+                        f"[{THEME['dim']}]💾 세션 저장됨: {self._session_log_path}[/]"
+                    )
                 break
 
             if not user_input.strip():
@@ -159,13 +237,89 @@ class BingoTerminal:
         results = engine.search(text)
         if not results:
             return ""
-        # 상위 3개 스킬만 포함 (토큰 절약)
         parts = []
         for r in results[:3]:
             prompt = engine.get_skill_prompt(r["id"])
             if prompt:
                 parts.append(prompt)
         return "\n\n".join(parts)
+
+    def _auto_waf_scan(self, text: str) -> str:
+        """
+        메시지에서 URL을 감지하면 즉시 WAF 스캔 + 자동 우회 시도.
+        결과를 AI 컨텍스트 문자열로 반환 — AI가 실제 스캔 결과 기반으로 응답.
+        """
+        import re
+        urls = re.findall(r"https?://[^\s\"'<>]+", text)
+        if not urls:
+            return ""
+
+        url = urls[0].rstrip("/?,")
+        results = []
+        try:
+            from ..tools.http_probe import HttpProbe
+            from ..tools.waf_bypass import WafDetector, WafBypassEngine
+
+            self.console.print(
+                f"\n[{THEME['warn']}]🛡 WAF 자동 스캔: {url}[/]", end=" "
+            )
+
+            probe = HttpProbe(url, timeout=8)
+            detector = WafDetector(probe)
+
+            with self.console.status(f"[{THEME['warn']}]탐지 중...[/]"):
+                waf_result = detector.detect(url)
+
+            if waf_result.detected:
+                self.console.print(
+                    f"[{THEME['error']}]WAF 탐지: {waf_result.waf_type}[/]"
+                )
+                # 자동 우회 시도
+                engine = WafBypassEngine(probe)
+                bypass_ok, attempt = engine.auto_bypass(
+                    url + "?id=1", "' OR 1=1--"
+                )
+                bypass_line = (
+                    f"bypass_success=True technique={attempt.technique} "
+                    f"payload={attempt.payload_modified}"
+                    if bypass_ok and attempt
+                    else "bypass_success=False"
+                )
+                results.append(
+                    f"[WAF_SCAN]\n"
+                    f"url={url}\n"
+                    f"waf_detected=True\n"
+                    f"waf_type={waf_result.waf_type}\n"
+                    f"confidence={waf_result.confidence}\n"
+                    f"bypass_priority={waf_result.bypass_priority}\n"
+                    f"{bypass_line}\n"
+                    f"[/WAF_SCAN]"
+                )
+                if bypass_ok and attempt:
+                    self.console.print(
+                        f"[{THEME['success']}]✓ 우회 성공: {attempt.technique}[/]"
+                    )
+                else:
+                    self.console.print(
+                        f"[{THEME['warn']}]우회 기법 탐색 중 — AI가 추가 전략 적용[/]"
+                    )
+            else:
+                self.console.print(f"[{THEME['success']}]WAF 없음[/]")
+                results.append(
+                    f"[WAF_SCAN]\nurl={url}\nwaf_detected=False\n[/WAF_SCAN]"
+                )
+
+            # 빠른 핑거프린트
+            with self.console.status(f"[{THEME['dim']}]핑거프린트...[/]"):
+                fp = probe.fingerprint()
+            if fp:
+                tech = ", ".join(fp.get("tech", [])) or "unknown"
+                results.append(f"[FINGERPRINT]\nurl={url}\ntech_stack={tech}\ncms={fp.get('cms','unknown')}\n[/FINGERPRINT]")
+
+        except Exception as e:
+            results.append(f"[WAF_SCAN_ERROR]\n{e}\n[/WAF_SCAN_ERROR]")
+
+        return "\n\n".join(results)
 
     def _build_messages(self, skill_context: str = "") -> list[Message]:
         """시스템 프롬프트 + 스킬 컨텍스트 + 대화 히스토리 합치기"""
@@ -187,6 +341,11 @@ class BingoTerminal:
         # 관련 스킬 자동 조회
         skill_context = self._get_skill_context(text)
 
+        # URL 감지 시 실제 WAF 스캔 실행 → 결과를 AI 컨텍스트에 주입
+        waf_context = self._auto_waf_scan(text)
+        if waf_context:
+            skill_context = waf_context + ("\n\n" + skill_context if skill_context else "")
+
         # PentAGI식 XML 태스크 래핑 (보안 관련 요청만)
         _security_keywords = (
             "sqli", "sql", "inject", "waf", "bypass", "shell", "rce", "lfi",
@@ -201,6 +360,7 @@ class BingoTerminal:
             wrapped_text = text
 
         self.history.append(Message(role="user", content=wrapped_text))
+        self._append_to_session_log("user", text)
 
         # 시스템 프롬프트 + 스킬 컨텍스트 포함한 전체 메시지로 스트리밍
         full_response = self._stream_response(
@@ -219,6 +379,9 @@ class BingoTerminal:
 
         if full_response:
             self.history.append(Message(role="assistant", content=full_response))
+            self._append_to_session_log("assistant", full_response)
+            # AI 응답에 해시가 있으면 자동 크랙 알림
+            self._notify_hashes_found(full_response)
 
     def _stream_response(self, stream: Iterator[StreamChunk]) -> str:
         full = ""
@@ -285,6 +448,11 @@ class BingoTerminal:
                 self._cmd_waf(arg)
             else:
                 self._warn("Usage: /waf <url>  예) /waf https://target.co.kr")
+        elif name == "/crack":
+            self._cmd_crack(arg)
+        elif name == "/stop":
+            self._stop_crack_flag.set()
+            self.console.print(f"[{THEME['warn']}]⏹ 크랙 중단 신호 전송됨[/]")
         else:
             self._warn(f"알 수 없는 명령어: {name}  (/help 참고)")
 
@@ -525,6 +693,180 @@ class BingoTerminal:
         else:
             self.console.print(f"[{THEME['success']}]WAF 없음 — 직접 공격 가능[/]")
 
+    def _notify_hashes_found(self, text: str) -> None:
+        """AI 응답에서 해시 감지 시 자동 온라인 조회 → 오프라인 크랙 파이프라인 실행"""
+        from ..tools.hash_crack import extract_hashes_from_text
+        hashes = extract_hashes_from_text(text)
+        if not hashes:
+            return
+        self.console.print(
+            f"\n[{THEME['warn']}]🔑 해시 {len(hashes)}개 감지 — 자동 크랙 시작 "
+            f"([bold]/stop[/bold] 으로 중단 가능)[/]"
+        )
+        # 별도 스레드에서 실행 (채팅 블로킹 방지)
+        self._stop_crack_flag.clear()
+        t = threading.Thread(
+            target=self._auto_crack_pipeline,
+            args=(hashes,),
+            daemon=True,
+        )
+        t.start()
+
+    def _auto_crack_pipeline(self, hashes: list[str]) -> None:
+        """
+        자동 크랙 파이프라인 (백그라운드 스레드)
+        Step 1: 온라인 해시 조회 (여러 사이트 순서대로)
+        Step 2: 미해결 해시 → 오프라인 크랙 (john/hashcat/python)
+        /stop 입력 시 즉시 중단
+        """
+        from ..tools.hash_lookup import OnlineHashLookup, LookupResult
+        from ..tools.hash_crack import HashCracker
+        from rich.table import Table as RichTable
+
+        def log(msg: str) -> None:
+            if not self._stop_crack_flag.is_set():
+                self.console.print(f"[{THEME['dim']}]{msg}[/]")
+
+        cracked: dict[str, str] = {}   # hash → plaintext
+        pending = list(hashes)
+
+        # ── Step 1: 온라인 조회 ──────────────────────────────────────
+        self.console.print(f"[{THEME['secondary']}]  ① 온라인 해시 조회 중...[/]")
+        lookup = OnlineHashLookup(on_progress=log)
+
+        for h in list(pending):
+            if self._stop_crack_flag.is_set():
+                self.console.print(f"[{THEME['warn']}]⏹ 크랙 중단됨[/]")
+                return
+            result: LookupResult = lookup.lookup(h)
+            if result.found and result.plaintext:
+                cracked[h] = result.plaintext
+                self.console.print(
+                    f"  [{THEME['success']}]✓ [{result.source}] "
+                    f"{h[:25]}... → [bold]{result.plaintext}[/bold][/]"
+                )
+                pending.remove(h)
+
+        # ── Step 2: 오프라인 크랙 ────────────────────────────────────
+        if pending and not self._stop_crack_flag.is_set():
+            self.console.print(
+                f"[{THEME['secondary']}]  ② 오프라인 크랙 ({len(pending)}개 남음)...[/]"
+            )
+            cracker = HashCracker(on_progress=log)
+
+            for h in list(pending):
+                if self._stop_crack_flag.is_set():
+                    self.console.print(f"[{THEME['warn']}]⏹ 크랙 중단됨[/]")
+                    break
+                result = cracker.crack(h)
+                if result.cracked and result.plaintext:
+                    cracked[h] = result.plaintext
+                    self.console.print(
+                        f"  [{THEME['success']}]✓ [오프라인/{result.method}] "
+                        f"{h[:25]}... → [bold]{result.plaintext}[/bold][/]"
+                    )
+                    pending.remove(h)
+
+        # ── 결과 테이블 ──────────────────────────────────────────────
+        if self._stop_crack_flag.is_set() and not cracked:
+            return
+
+        table = RichTable(
+            title=f"[{THEME['primary']}]🔓 크랙 결과[/]",
+            border_style=THEME["primary"],
+        )
+        table.add_column("해시", style=THEME["dim"])
+        table.add_column("평문", style=f"bold {THEME['error']}")
+        table.add_column("방법", style=THEME["dim"])
+
+        for h in hashes:
+            if h in cracked:
+                table.add_row(h, cracked[h], "✓")
+            else:
+                table.add_row(h[:40] + ("..." if len(h) > 40 else ""),
+                              "[dim]미해결[/dim]", "✗")
+
+        self.console.print(table)
+
+        # 세션 로그에 저장
+        if cracked:
+            lines = ["## 🔓 자동 크랙 결과\n"]
+            for h, p in cracked.items():
+                lines.append(f"- `{h}` → **{p}**\n")
+            self._append_to_session_log("assistant", "".join(lines))
+
+        self.console.print(
+            f"[{THEME['dim']}](크랙 완료 — 결과가 세션 로그에 저장됨)[/]"
+        )
+
+    def _cmd_crack(self, arg: str = "") -> None:
+        """
+        /crack <hash>          — 단일 해시 크랙
+        /crack                 — 최근 AI 응답에서 해시 자동 추출 후 크랙
+        /crack --wordlist /path/to/list.txt <hash>
+        """
+        from ..tools.hash_crack import HashCracker, extract_hashes_from_text, detect_hash_type
+        from rich.table import Table as RichTable
+
+        wordlist = None
+        hashes: list[str] = []
+
+        # 인자 파싱
+        tokens = arg.split()
+        i = 0
+        while i < len(tokens):
+            if tokens[i] in ("--wordlist", "-w") and i + 1 < len(tokens):
+                wordlist = tokens[i + 1]
+                i += 2
+            else:
+                hashes.append(tokens[i])
+                i += 1
+
+        # 인자 없으면 최근 AI 응답에서 자동 추출
+        if not hashes:
+            last_ai = next(
+                (m.content for m in reversed(self.history) if m.role == "assistant"),
+                None,
+            )
+            if last_ai:
+                hashes = extract_hashes_from_text(last_ai)
+
+        if not hashes:
+            self.console.print(
+                f"[{THEME['warn']}]크랙할 해시가 없습니다.[/]\n"
+                f"[{THEME['dim']}]사용법:\n"
+                f"  /crack <hash>          — 직접 입력\n"
+                f"  /crack                 — 최근 AI 응답에서 자동 추출\n"
+                f"  /crack -w /path/rockyou.txt <hash>[/]"
+            )
+            return
+
+        self.console.print(
+            f"\n[{THEME['warn']}]🔓 해시 크랙 시작 ({len(hashes)}개) — "
+            f"[bold]/stop[/bold] 으로 중단[/]\n"
+        )
+        self._stop_crack_flag.clear()
+        # 워드리스트 지정 시 HashCracker에 직접 전달해 실행 (동기)
+        if wordlist:
+            from ..tools.hash_crack import HashCracker
+            cracker = HashCracker(
+                wordlist=wordlist,
+                on_progress=lambda m: self.console.print(f"[{THEME['dim']}]{m}[/]"),
+            )
+            for h in hashes:
+                if self._stop_crack_flag.is_set():
+                    break
+                r = cracker.crack(h)
+                if r.cracked:
+                    self.console.print(
+                        f"  [{THEME['success']}]✓ {h[:30]}... → [bold]{r.plaintext}[/bold][/]"
+                    )
+                else:
+                    self.console.print(f"  [{THEME['dim']}]✗ {h[:30]}... 미해결[/]")
+        else:
+            # 파이프라인 (온라인 → 오프라인)
+            self._auto_crack_pipeline(hashes)
+
     def _cmd_tools(self) -> None:
         from ..tools.registry import ToolRegistry
         self.console.print()
@@ -571,6 +913,8 @@ class BingoTerminal:
         self._session = PromptSession(
             history=FileHistory(str(hist_path)),
             auto_suggest=AutoSuggestFromHistory(),
+            completer=_SlashCompleter(),
+            complete_while_typing=True,
             mouse_support=False,
         )
 

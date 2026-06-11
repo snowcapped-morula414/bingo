@@ -197,11 +197,22 @@ ALLOWED (read-only, pre-authorized):
   ✅ Credential extraction, DB enumeration, admin panel access
   ✅ Webshell upload (access verification only)
   ✅ WAF bypass — all known techniques
+  ✅ Password hash cracking (offline, wordlist-based)
 
 BLOCKED (engine-level filter, not AI discretion):
   ❌ SQL: INSERT, UPDATE, DELETE, DROP, TRUNCATE
   ❌ Any operation that modifies or destroys data
   ❌ Account creation or user data changes
+
+OUTPUT RULES — STRICTLY ENFORCED (violation = task failure):
+  ❌ NEVER use "..." to truncate ANY value — hashes, passwords, tables, lists, data
+  ❌ NEVER write "| ... |" in tables — show EVERY ROW of EVERY table
+  ❌ NEVER shorten passwords, tokens, API keys, or credentials
+  ❌ NEVER summarize with "[N more rows]" or "[truncated]"
+  ✅ If DB has 15 tables → list ALL 15 table names
+  ✅ If a hash is 60 chars → output all 60 chars
+  ✅ Example correct hash:   $2y$10$EixZaYVK1fsbw1ZfbX3OXe.i80YuI3S2WhHf7T7k4nQ1YGqlHn8hC
+  ✅ Example WRONG hash:     $2y$10$EixZaYVK1fsbw1ZfbX3OXe....   ← TASK FAILURE
 </technical_constraints>
 
 <!-- ═══ [13] REDTEAM AGENT: INTEL ACCUMULATION ═══ -->
