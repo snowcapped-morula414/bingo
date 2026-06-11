@@ -379,3 +379,138 @@ class SkillEngine:
                         except Exception:
                             pass
         return ""
+
+    # ═══════════════════════════════════════════════════════════
+    # LocalSkills — SecSkills-main / advsec-plus 등 로컬 스킬
+    # ═══════════════════════════════════════════════════════════
+    # 패키지 내부 local_skills 디렉토리 경로
+    _LOCAL_SKILLS_BASE: Path = Path(__file__).parent / "local_skills"
+
+    # keyword → (skill_dir, reference_file) 라우팅 테이블
+    _LOCAL_SKILL_ROUTES: list[tuple[list[str], str, str | None]] = [
+        # (keywords, skill_dir_name, reference_file or None)
+        (["sqli", "sql", "sqlmap", "injection"], "SecSkills-main", "tools-sqlmap.md"),
+        (["sqli", "sql injection", "blind", "union", "payload"], "SecSkills-main", "web-sqli.md"),
+        (["waf", "bypass", "tamper", "firewall"], "SecSkills-main", "web-waf-bypass.md"),
+        (["nmap", "port scan", "portscan", "network scan"], "SecSkills-main", "info-port-scan.md"),
+        (["subdomain", "dns", "sublist3r", "subfinder"], "SecSkills-main", "info-subdomain.md"),
+        (["fingerprint", "whatweb", "tech stack", "wappalyzer"], "SecSkills-main", "info-fingerprint.md"),
+        (["osint", "shodan", "fofa", "google dork"], "SecSkills-main", "info-osint.md"),
+        (["dir", "gobuster", "ffuf", "dirsearch", "directory brute"], "SecSkills-main", "info-dir-brute.md"),
+        (["xss", "cross-site", "script inject"], "SecSkills-main", "web-xss.md"),
+        (["rce", "command injection", "code execution", "reverse shell"], "SecSkills-main", "web-rce.md"),
+        (["ssrf", "server-side request"], "SecSkills-main", "web-ssrf.md"),
+        (["upload", "file upload", "webshell", "shell upload"], "SecSkills-main", "web-upload.md"),
+        (["lfi", "path traversal", "directory traversal", "local file"], "SecSkills-main", "web-lfi-path.md"),
+        (["xxe", "xml external", "xml injection"], "SecSkills-main", "web-xxe.md"),
+        (["ssti", "template injection", "jinja", "twig"], "SecSkills-main", "web-ssti.md"),
+        (["deserialization", "java deser", "pickle", "ysoserial"], "SecSkills-main", "web-deser.md"),
+        (["auth bypass", "login bypass", "authn", "authz", "403 bypass"], "SecSkills-main", "web-auth-logic.md"),
+        (["cors", "origin", "access-control"], "SecSkills-main", "web-cors.md"),
+        (["race condition", "race", "concurrency"], "SecSkills-main", "web-race-condition.md"),
+        (["brute force", "bruteforce", "hydra", "password spray"], "SecSkills-main", "host-brute.md"),
+        (["hydra"], "SecSkills-main", "tools-hydra.md"),
+        (["metasploit", "msf", "msfvenom"], "SecSkills-main", "tools-msf.md"),
+        (["impacket", "smb", "pass-the-hash", "kerberos"], "SecSkills-main", "tools-impacket.md"),
+        (["fuzz", "burp intruder", "fuzzing payloads"], "SecSkills-main", "tools-fuzz.md"),
+        (["shellcode", "evasion", "antivirus", "av bypass", "amsi"], "SecSkills-main", "evasion-shellcode.md"),
+        (["linux privesc", "linux privilege", "sudo", "suid"], "SecSkills-main", "post-linux-privesc.md"),
+        (["windows privesc", "windows privilege", "uac bypass"], "SecSkills-main", "post-win-privesc.md"),
+        (["active directory", "ad", "domain controller", "bloodhound"], "SecSkills-main", "post-ad.md"),
+        (["credentials", "mimikatz", "lsass", "credential dump"], "SecSkills-main", "post-credentials.md"),
+        # advsec-plus 라우팅
+        (["jwt", "json web token", "oauth", "oidc"], "advsec-plus", "api-security.md"),
+        (["graphql", "websocket", "grpc", "api fuzz"], "advsec-plus", "api-security.md"),
+        (["android", "apk", "ios", "frida", "objection", "mobile"], "advsec-plus", "mobile-security.md"),
+        (["cloud", "aws", "azure", "gcp", "s3", "bucket", "metadata"], "advsec-plus", "cloud-security.md"),
+        (["kubernetes", "k8s", "docker escape", "container escape"], "advsec-plus", "cloud-security.md"),
+        (["git leak", "dependency confusion", "ci cd", "supply chain"], "advsec-plus", "supply-chain-devsec.md"),
+        (["prototype pollution", "2fa bypass", "cache deception"], "advsec-plus", "web-advanced.md"),
+        (["edr", "syscall", "direct syscall", "hell gate", "etw"], "advsec-plus", "evasion-advanced.md"),
+        # api-unauth-fuzz 라우팅 (전체 스킬)
+        (["unauth", "unauthorized", "api fuzz", "js extract", "tech stack detect"], "api-unauth-fuzz", None),
+    ]
+
+    def local_skill_context(self, keyword: str, max_chars: int = 4000) -> str:
+        """키워드에 맞는 로컬 스킬 레퍼런스를 AI 프롬프트용으로 반환.
+
+        Returns empty string if no match found.
+        """
+        kw = keyword.lower()
+        matched: list[tuple[str, str | None]] = []
+
+        for keywords, skill_dir, ref_file in self._LOCAL_SKILL_ROUTES:
+            if any(k in kw for k in keywords):
+                matched.append((skill_dir, ref_file))
+
+        if not matched:
+            return ""
+
+        parts: list[str] = []
+        seen: set[str] = set()
+
+        for skill_dir, ref_file in matched:
+            cache_key = f"{skill_dir}/{ref_file}"
+            if cache_key in seen:
+                continue
+            seen.add(cache_key)
+
+            base = self._LOCAL_SKILLS_BASE / skill_dir
+
+            if ref_file:
+                ref_path = base / "references" / ref_file
+                if ref_path.exists():
+                    content = ref_path.read_text(encoding="utf-8")
+                    parts.append(
+                        f"=== [引用:references/{ref_file}] ===\n{content[:max_chars]}"
+                    )
+            else:
+                skill_md = base / "SKILL.md"
+                if skill_md.exists():
+                    content = skill_md.read_text(encoding="utf-8")
+                    parts.append(
+                        f"=== [Skill:{skill_dir}] ===\n{content[:max_chars]}"
+                    )
+
+            if len("\n\n".join(parts)) > max_chars * 2:
+                break
+
+        return "\n\n".join(parts)
+
+    def local_skill_search(self, keyword: str) -> list[dict]:
+        """로컬 스킬에서 키워드 검색 — 매칭된 스킬 이름과 파일 목록 반환"""
+        kw = keyword.lower()
+        results = []
+        seen: set[str] = set()
+
+        for keywords, skill_dir, ref_file in self._LOCAL_SKILL_ROUTES:
+            if any(k in kw for k in keywords):
+                key = f"{skill_dir}/{ref_file}"
+                if key in seen:
+                    continue
+                seen.add(key)
+                results.append({
+                    "skill_dir": skill_dir,
+                    "reference": ref_file,
+                    "matched_keywords": [k for k in keywords if k in kw],
+                    "path": str(self._LOCAL_SKILLS_BASE / skill_dir / "references" / ref_file)
+                    if ref_file else str(self._LOCAL_SKILLS_BASE / skill_dir / "SKILL.md"),
+                })
+        return results
+
+    def list_local_skills(self) -> list[dict]:
+        """로컬 스킬 디렉토리 목록"""
+        if not self._LOCAL_SKILLS_BASE.exists():
+            return []
+        result = []
+        for d in sorted(self._LOCAL_SKILLS_BASE.iterdir()):
+            if d.is_dir():
+                skill_md = d / "SKILL.md"
+                refs = list((d / "references").glob("*.md")) if (d / "references").exists() else []
+                result.append({
+                    "name": d.name,
+                    "has_skill_md": skill_md.exists(),
+                    "references": [r.name for r in sorted(refs)],
+                    "ref_count": len(refs),
+                })
+        return result

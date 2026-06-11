@@ -331,6 +331,8 @@ _STRINGS = {
     "cli_help_version": {"ko": "버전 표시",     "zh": "显示版本",     "en": "Show version"},
     "cli_help_output":  {"ko": "보고서 저장 위치", "zh": "报告保存位置","en": "Report save path"},
     "cli_help_phase":   {"ko": "실행할 단계 선택", "zh": "选择执行阶段","en": "Select phases to run"},
+    "crawling":            {"ko": "🔍 사이트 크롤 중...", "zh": "🔍 站点抓取中...", "en": "🔍 Crawling site..."},
+    "params_found":        {"ko": "✓ 파라미터 발견", "zh": "✓ 发现参数",     "en": "✓ Parameters found"},
     "exec_running":        {"ko": "실행 중",       "zh": "执行中",       "en": "Running"},
     "exec_analyzing":      {"ko": "📊 실행 결과 분석 중...", "zh": "📊 分析执行结果...", "en": "📊 Analyzing results..."},
 
