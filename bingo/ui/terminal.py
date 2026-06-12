@@ -613,9 +613,15 @@ class BingoTerminal:
 
         self.console.print()
         try:
-            self.console.print(Markdown(display) if ("**" in display or "# " in display) else display)
+            if "**" in display or "# " in display:
+                self.console.print(Markdown(display))
+            else:
+                # Rich 마크업 오류 방지 — URL/특수문자 escape
+                from rich.markup import escape as _resc
+                self.console.print(_resc(display))
         except Exception:
-            self.console.print(display)
+            # 최후 수단 — 순수 텍스트 출력
+            self.console.out(display)
         self.console.print()
         return final  # 실행에는 원본(full code) 반환
 
@@ -1115,16 +1121,22 @@ class BingoTerminal:
         else:
             self.console.print(f"[{THEME['success']}]{self.s['waf_none']}[/]")
 
-    def _execute_ai_commands(self, response: str) -> None:
+    def _execute_ai_commands(self, response: str, _depth: int = 0) -> None:
         """
         AI가 ```python 또는 ```bash 블록으로 코드를 제시하면 실제로 실행하고
         결과를 AI에게 피드백 → AI가 실제 데이터로 분석함.
 
         Full Agent 모드: Python 코드 우선, bash 명령도 지원.
         SKILL_LOAD: 선언을 감지하면 스킬 내용을 먼저 주입 후 계속 진행.
+        _depth: 재귀 깊이 — 5 초과 시 강제 종료 (무한 루프 방지)
         """
         import re, subprocess, tempfile, os
         from pathlib import Path
+
+        # 무한 재귀 방지
+        if _depth > 5:
+            self.console.print(f"[{THEME['warn']}]⚠ Agent 재귀 깊이 초과 — 강제 중단[/]")
+            return
 
         # ── SKILL_LOAD: 에이전트 자율 스킬 로드 ─────────────────────────
         skill_names = self._parse_skill_load_request(response)
@@ -1156,7 +1168,7 @@ class BingoTerminal:
                     self.history.append(Message(role="assistant", content=new_response))
                     # 새 응답으로 계속 실행
                     if "```" in new_response:
-                        self._execute_ai_commands(new_response)
+                        self._execute_ai_commands(new_response, _depth=_depth+1)
                     return
 
         if "```" not in response:
@@ -1216,7 +1228,12 @@ class BingoTerminal:
                 output = (proc.stdout or "") + (proc.stderr or "")
                 if output.strip():
                     preview_out = "\n".join(output.strip().splitlines()[:60])
-                    self.console.print(f"[{THEME['dim']}]{preview_out}[/]")
+                    # URL 등 특수문자로 인한 Rich MarkupError 방지
+                    from rich.markup import escape as _resc
+                    try:
+                        self.console.print(f"[{THEME['dim']}]{_resc(preview_out)}[/]")
+                    except Exception:
+                        self.console.out(preview_out)
                     results_text.append(
                         f"=== PYTHON EXECUTION (script_{i}) ===\n"
                         f"{output.strip()}\n"
@@ -1233,7 +1250,8 @@ class BingoTerminal:
                     f"=== PYTHON EXECUTION (script_{i}) ===\n(timed out after 120s — AI should write a faster/smaller script)"
                 )
             except Exception as e:
-                self.console.print(f"[{THEME['error']}]  python exec error: {e}[/]")
+                from rich.markup import escape as _e
+                self.console.print(f"[{THEME['error']}]  python exec error:[/] {_e(str(e))}")
 
         # ── Bash 블록 실행 (보조) ──────────────────────────────────────
         # bash는 curl, nmap 등 단순 명령에만 사용
@@ -1301,7 +1319,8 @@ class BingoTerminal:
                     f"=== REAL EXECUTION: {cmd_line[:80]} ===\n(timed out)"
                 )
             except Exception as e:
-                self.console.print(f"[{THEME['error']}]  exec error: {e}[/]")
+                from rich.markup import escape as _e
+                self.console.print(f"[{THEME['error']}]  exec error:[/] {_e(str(e))}")
 
         if not results_text:
             return
@@ -1402,7 +1421,7 @@ class BingoTerminal:
                     f"[{THEME['dim']}]🔄 Agent 루프 {exec_count + 1}/15  "
                     f"[dim](Ctrl+C로 중단 가능)[/dim][/]"
                 )
-                self._execute_ai_commands(followup_response)
+                self._execute_ai_commands(followup_response, _depth=_depth+1)
             else:
                 self.console.print(
                     f"[{THEME['warn']}]⚠ Agent 최대 루프(15) 도달 — 직접 다음 명령을 입력하세요[/]"
