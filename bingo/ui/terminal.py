@@ -450,15 +450,23 @@ class BingoTerminal:
                     pass
 
             # 화면 표시 요약
+            _recon_tpl = self.s.get(
+                "recon_summary",
+                "links={links}  forms={forms}  param_urls={params}  api={api}"
+            )
             self.console.print(
-                f"[{THEME['success']}]  links={len(all_links)}  "
-                f"forms={len(forms_raw)}  "
-                f"param_urls={len(param_links)}  "
-                f"api_hints={len(api_hints)}[/]"
+                f"[{THEME['success']}]  "
+                + _recon_tpl.format(
+                    links=len(all_links),
+                    forms=len(forms_raw),
+                    params=len(param_links),
+                    api=len(api_hints),
+                ) + "[/]"
             )
             if tech_hints:
                 self.console.print(
-                    f"[{THEME['warn']}]  stack: {', '.join(t for t in tech_hints if t)}[/]"
+                    f"[{THEME['warn']}]  {self.s.get('recon_stack', 'tech stack')}: "
+                    f"{', '.join(t for t in tech_hints if t)}[/]"
                 )
 
         except Exception as e:

@@ -444,6 +444,10 @@ _STRINGS = {
                             "en": "Agent stuck — generating report"},
     "strategy_change":     {"ko": "전략 전환 요청",           "zh": "请求切换策略",          "en": "Strategy change requested"},
     "report_auto":         {"ko": "자동 보고서",              "zh": "自动报告",             "en": "Auto report"},
+    "recon_summary":       {"ko": "링크={links}  폼={forms}  파라미터URL={params}  API={api}",
+                            "zh": "链接={links}  表单={forms}  参数URL={params}  API={api}",
+                            "en": "links={links}  forms={forms}  param_urls={params}  api={api}"},
+    "recon_stack":         {"ko": "기술 스택",                "zh": "技术栈",               "en": "tech stack"},
 }
 
 
