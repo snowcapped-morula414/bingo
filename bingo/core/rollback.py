@@ -56,7 +56,10 @@ class RollbackManager:
     """
 
     def __init__(self):
-        _SNAPSHOTS_DIR.mkdir(parents=True, exist_ok=True)
+        try:
+            _SNAPSHOTS_DIR.mkdir(parents=True, exist_ok=True)
+        except Exception:
+            pass  # 권한 없어도 메모리 기반으로 동작
         self._snapshots: list[Snapshot] = self._load_all()
 
     # ── 스냅샷 저장 ───────────────────────────────────────────────

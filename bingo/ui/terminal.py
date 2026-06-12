@@ -964,6 +964,23 @@ class BingoTerminal:
             return
 
         from rich.panel import Panel as _Panel
+
+        # 툴 자동 설치 확인
+        with self.console.status("[cyan]툴 초기화 중...[/cyan]"):
+            try:
+                import shutil as _sh
+                from pathlib import Path as _P
+                _bingo_dir = _P.home() / ".bingo"
+                _bingo_dir.mkdir(exist_ok=True)
+                _tools_dir = _P(__file__).parent.parent / "tools"
+                for _m in ["agent_tools.py", "recon_tools.py", "web_tools.py", "auth_tools.py"]:
+                    _src = _tools_dir / _m
+                    _dst = _bingo_dir / _m
+                    if _src.exists():
+                        _sh.copy2(str(_src), str(_dst))
+            except Exception as _e:
+                self.console.print(f"[dim]툴 설치 경고: {_e}[/dim]")
+
         self.console.print(_Panel(
             f"[bold cyan]🚀 MULTI-AGENT SCAN[/bold cyan]\n"
             f"[dim]Recon + SQLi + WebVuln + Auth — 동시 실행[/dim]\n"

@@ -113,7 +113,8 @@ class ParallelRunner:
                 executor.submit(_run_task, task): task
                 for task in tasks
             }
-            for future in as_completed(future_to_task, timeout=max(t.timeout for t in tasks)):
+            # timeout 없이 as_completed — 개별 태스크는 자체 timeout으로 관리
+            for future in as_completed(future_to_task):
                 task = future_to_task[future]
                 try:
                     completed = future.result()
@@ -212,8 +213,8 @@ class ParallelRunner:
                     executor.submit(_run_task_live, task): task
                     for task in tasks
                 }
-                for future in as_completed(future_to_task,
-                                            timeout=max(t.timeout for t in tasks)):
+                # timeout 없이 — 개별 태스크 자체 timeout으로 관리
+                for future in as_completed(future_to_task):
                     task = future_to_task[future]
                     try:
                         completed = future.result()
