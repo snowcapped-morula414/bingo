@@ -225,30 +225,37 @@ class BingoTerminal:
         """사용자 입력에서 관련 스킬 자동 검색 후 AI 컨텍스트 문자열 반환.
 
         우선순위:
-          1. SecSkills-main / advsec-plus 로컬 references/ (가장 정확, 환각 방지)
-          2. CyberSecurity-Skills 내장 DB (보조)
+          1. bingo 내장 pentest SKILL.md 파일 (신규 — sqli/waf_bypass/api_security 등)
+          2. SecSkills-main / advsec-plus 로컬 references/
+          3. CyberSecurity-Skills 내장 DB (보조)
         """
-        from ..skills.engine import SkillEngine
-        engine = SkillEngine()
-
         parts: list[str] = []
 
-        # ── 1. 로컬 SecSkills references 검색 (우선) ─────────────────
-        local_ctx = engine.local_skill_context(text, max_chars=3500)
-        if local_ctx:
-            parts.append(
-                "=== SKILL_CONTEXT (verified reference — cite with [引用:references/file.md]) ===\n"
-                + local_ctx
-                + "\n=== END SKILL_CONTEXT ==="
-            )
+        # ── 1. bingo 내장 pentest 스킬 (새 시스템) ───────────────────
+        builtin_ctx = self._detect_and_load_skills(text)
+        if builtin_ctx:
+            parts.append(builtin_ctx)
 
-        # ── 2. 내장 CyberSecurity-Skills DB (보조) ───────────────────
-        if not parts:
-            results = engine.search(text)
-            for r in results[:3]:
-                prompt = engine.get_skill_prompt(r["id"])
-                if prompt:
-                    parts.append(prompt)
+        # ── 2. 로컬 SecSkills references (기존) ──────────────────────
+        try:
+            from ..skills.engine import SkillEngine
+            engine = SkillEngine()
+            local_ctx = engine.local_skill_context(text, max_chars=2000)
+            if local_ctx:
+                parts.append(
+                    "=== SKILL_CONTEXT (verified reference) ===\n"
+                    + local_ctx
+                    + "\n=== END SKILL_CONTEXT ==="
+                )
+            # ── 3. 내장 DB (보조) ─────────────────────────────────────
+            if not local_ctx:
+                results = engine.search(text)
+                for r in results[:2]:
+                    prompt = engine.get_skill_prompt(r["id"])
+                    if prompt:
+                        parts.append(prompt)
+        except Exception:
+            pass
 
         return "\n\n".join(parts)
 
@@ -575,6 +582,9 @@ class BingoTerminal:
         final = self._filter_ai_monologue(full)
         display = self._collapse_code_blocks(final)
         display = self._filter_agent_noise(display)
+        # SKILL_LOAD 선언 줄은 유저에게 숨김 (처리는 됨)
+        import re as _re
+        display = _re.sub(r"SKILL_LOAD:\s*[^\n]*\n?", "", display)
 
         self.console.print()
         try:
@@ -937,10 +947,43 @@ class BingoTerminal:
         결과를 AI에게 피드백 → AI가 실제 데이터로 분석함.
 
         Full Agent 모드: Python 코드 우선, bash 명령도 지원.
-        AWAITING_BINGO_EXECUTION 키워드가 있을 때 실행.
+        SKILL_LOAD: 선언을 감지하면 스킬 내용을 먼저 주입 후 계속 진행.
         """
         import re, subprocess, tempfile, os
         from pathlib import Path
+
+        # ── SKILL_LOAD: 에이전트 자율 스킬 로드 ─────────────────────────
+        skill_names = self._parse_skill_load_request(response)
+        if skill_names:
+            skill_content = self._load_skill_content(skill_names)
+            if skill_content:
+                # 스킬 내용을 user 메시지로 주입 → AI가 전문가 수준으로 업그레이드
+                self.history.append(Message(
+                    role="user",
+                    content=(
+                        "=== SKILL CONTENT INJECTED (use this expert knowledge) ===\n"
+                        + skill_content
+                        + "\n=== END SKILLS ===\n"
+                        "Now continue with the task using this expert knowledge. "
+                        "Do NOT declare SKILL_LOAD again."
+                    )
+                ))
+                # 스킬 주입 후 AI 재호출 (전문 지식으로 이어서 작업)
+                from ..models.registry import ModelRegistry
+                model_cfg = self.config.get_active_model_config()
+                if model_cfg:
+                    model = ModelRegistry.build(model_cfg)
+                    self.console.print(
+                        f"\n[bold cyan]⚡ 스킬 지식 적용 중...[/bold cyan]"
+                    )
+                    new_response = self._stream_response(
+                        model.chat_stream(self._build_messages(""))
+                    )
+                    self.history.append(Message(role="assistant", content=new_response))
+                    # 새 응답으로 계속 실행
+                    if "```" in new_response:
+                        self._execute_ai_commands(new_response)
+                    return
 
         if "```" not in response:
             return
@@ -1269,6 +1312,44 @@ class BingoTerminal:
 
         # 변경 시 자동 저장
         self._save_agent_state()
+
+    # ── 스킬 시스템 (에이전트 자율 판단) ─────────────────────────
+    def _load_skill_content(self, skill_names: list[str]) -> str:
+        """지정된 스킬 파일을 읽어 내용 반환."""
+        from pathlib import Path
+        skills_dir = Path(__file__).parent.parent / "skills"
+        loaded = []
+        contents = []
+
+        for name in skill_names:
+            name = name.strip().lower()
+            skill_file = skills_dir / name / "SKILL.md"
+            if skill_file.exists():
+                content = skill_file.read_text(encoding="utf-8")
+                contents.append(f"=== SKILL: {name.upper()} ===\n{content}\n=== END SKILL: {name.upper()} ===")
+                loaded.append(name)
+
+        if loaded:
+            self.console.print(
+                f"[bold cyan]⚡ 스킬 로드됨: {', '.join(loaded)}[/bold cyan]"
+            )
+        return "\n\n".join(contents)
+
+    def _parse_skill_load_request(self, ai_response: str) -> list[str]:
+        """AI 응답에서 SKILL_LOAD: 요청을 파싱. 요청된 스킬 이름 리스트 반환."""
+        import re
+        m = re.search(r"SKILL_LOAD:\s*([^\n]+)", ai_response)
+        if not m:
+            return []
+        raw = m.group(1)
+        skills = [s.strip() for s in re.split(r"[,\s]+", raw) if s.strip()]
+        return skills
+
+    def _detect_and_load_skills(self, text: str) -> str:
+        """사용자 입력 키워드 기반 초기 스킬 로드 (첫 메시지 한정).
+        이후는 AI가 SKILL_LOAD:로 자율 판단.
+        """
+        return ""  # 이제 AI가 직접 판단 — 키워드 자동 로드 비활성화
 
     def _format_agent_state(self) -> str:
         """agent_state를 AI에게 주입할 요약 문자열로 변환."""
