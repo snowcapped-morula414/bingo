@@ -5,6 +5,9 @@
 #  irm https://raw.githubusercontent.com/bingook/bingo/main/install.ps1 | iex
 # ================================================================
 
+# pip stderr를 에러로 처리하지 않음
+$ErrorActionPreference = "Continue"
+
 function Step  { Write-Host "`n>> $args" -ForegroundColor Cyan }
 function OK    { Write-Host "  [OK] $args" -ForegroundColor Green }
 function Warn  { Write-Host "  [!!] $args" -ForegroundColor Yellow }
@@ -77,19 +80,25 @@ if (Test-Path "$dest\pyproject.toml") {
 Step "Installing dependencies..."
 $deps = @("rich","prompt_toolkit","httpx","pydantic","openai","anthropic")
 foreach ($d in $deps) {
-    & $py -m pip install --quiet $d
-    if ($LASTEXITCODE -eq 0) { OK $d } else { Warn "$d failed (continuing)" }
+    Write-Host "  Installing $d..." -NoNewline
+    $out = & $py -m pip install -q $d 2>&1
+    # pip 경고/stderr 도 성공으로 처리 (exit 0이면 OK)
+    if ($LASTEXITCODE -eq 0) {
+        Write-Host " OK" -ForegroundColor Green
+    } else {
+        Write-Host " WARN" -ForegroundColor Yellow
+    }
 }
 
 # ── 5. bingo 설치 ─────────────────────────────────────────────────
 Step "Installing bingo..."
 Set-Location $dest
-& $py -m pip install --quiet -e .
+$out = & $py -m pip install -q -e . 2>&1
 if ($LASTEXITCODE -ne 0) {
     Warn "editable install failed, trying regular..."
-    & $py -m pip install --quiet .
+    $out = & $py -m pip install -q . 2>&1
 }
-OK "bingo installed"
+if ($LASTEXITCODE -eq 0) { OK "bingo installed" } else { Warn "install may have issues" }
 
 # ── 6. PATH 등록 ──────────────────────────────────────────────────
 Step "Configuring PATH..."
