@@ -662,6 +662,9 @@ class BingoTerminal:
         try:
             if "**" in display or "# " in display:
                 self.console.print(Markdown(display))
+            elif "[dim]" in display or "[bold" in display or "[red" in display or "[green" in display:
+                # 코드 블록 요약 등 Rich 마크업 포함 — escape 없이 그대로 렌더링
+                self.console.print(display)
             else:
                 # Rich 마크업 오류 방지 — URL/특수문자 escape
                 from rich.markup import escape as _resc
@@ -1174,6 +1177,138 @@ class BingoTerminal:
         else:
             self.console.print(f"[{THEME['success']}]{self.s['waf_none']}[/]")
 
+    def _run_code_blocks(self, response: str, _loaded_skills: set) -> list[str]:
+        """AI 응답에서 Python/Bash 블록 추출 후 실행, 결과 텍스트 리스트 반환."""
+        import re, subprocess, tempfile, os
+        from pathlib import Path
+        from rich.markup import escape as _resc
+
+        results_text: list[str] = []
+        if "```" not in response:
+            return results_text
+
+        # ── agent_tools 자동 설치 (최초 1회) ─────────────────────────
+        _tools_dst = Path.home() / ".bingo" / "agent_tools.py"
+        if not _tools_dst.exists():
+            try:
+                import shutil as _sh
+                _tools_src = Path(__file__).parent.parent / "tools" / "agent_tools.py"
+                if _tools_src.exists():
+                    _tools_dst.parent.mkdir(parents=True, exist_ok=True)
+                    _sh.copy2(str(_tools_src), str(_tools_dst))
+            except Exception:
+                pass
+
+        # ── Python 블록 실행 ───────────────────────────────────────────
+        python_blocks = re.findall(r"```python\s*(.*?)```", response, re.DOTALL)
+        for i, block in enumerate(python_blocks):
+            code = block.strip()
+            if not code:
+                continue
+            tools_header = (
+                "import sys as _sys, os as _os\n"
+                "_sys.path.insert(0, _os.path.expanduser('~/.bingo'))\n"
+            )
+            if "agent_tools" not in code and "from agent_tools" not in code:
+                code = tools_header + code
+            tmp_dir = Path(tempfile.gettempdir()) / "bingo_agent"
+            tmp_dir.mkdir(exist_ok=True)
+            script_path = tmp_dir / f"agent_script_{i}.py"
+            script_path.write_text(code, encoding="utf-8")
+            preview = " | ".join(
+                l.strip() for l in code.splitlines()[:3] if l.strip()
+            )[:80]
+            self.console.print(
+                f"\n[{THEME['secondary']}]▶ {self.s.get('python_exec', 'Python execution')}:[/] "
+                f"[{THEME['dim']}]{preview}...[/]"
+            )
+            try:
+                proc = subprocess.run(
+                    ["python3", str(script_path)],
+                    capture_output=True, text=True, timeout=120,
+                    env={**os.environ, "PYTHONIOENCODING": "utf-8"},
+                )
+                output = (proc.stdout or "") + (proc.stderr or "")
+                if output.strip():
+                    preview_out = "\n".join(output.strip().splitlines()[:60])
+                    try:
+                        self.console.print(f"[{THEME['dim']}]{_resc(preview_out)}[/]")
+                    except Exception:
+                        self.console.out(preview_out)
+                    results_text.append(
+                        f"=== PYTHON EXECUTION (script_{i}) ===\n{output.strip()}\n"
+                        f"=== EXIT: {proc.returncode} ==="
+                    )
+                else:
+                    results_text.append(
+                        f"=== PYTHON EXECUTION (script_{i}) ===\n"
+                        f"(no output, exit={proc.returncode})"
+                    )
+            except subprocess.TimeoutExpired:
+                self.console.print(f"[{THEME['warn']}]  ⏱ timeout (120s)[/]")
+                results_text.append(
+                    f"=== PYTHON EXECUTION (script_{i}) ===\n"
+                    "(timed out after 120s — AI should write a faster/smaller script)"
+                )
+            except Exception as e:
+                self.console.print(f"[{THEME['error']}]  python exec error:[/] {_resc(str(e))}")
+
+        # ── Bash 블록 실행 ─────────────────────────────────────────────
+        bash_blocks = re.findall(r"```(?:bash|sh)\s*(.*?)```", response, re.DOTALL)
+        _BASH_ALLOWED = {
+            "curl", "nmap", "nikto", "ffuf", "gobuster", "nuclei",
+            "httpx", "subfinder", "amass", "whatweb", "john", "hashcat",
+            "python3", "python",
+        }
+        for block in bash_blocks:
+            import shlex
+            joined = block.strip().replace("\\\n", " ")
+            lines = [l.strip() for l in joined.splitlines()
+                     if l.strip() and not l.strip().startswith("#")]
+            if not lines:
+                continue
+            cmd_line = " ".join(lines)
+            try:
+                parts = shlex.split(cmd_line)
+            except Exception:
+                continue
+            if not parts:
+                continue
+            if parts[0].split("/")[-1] not in _BASH_ALLOWED:
+                continue
+            history_text = " ".join(m.content for m in self.history if m.role == "user")
+            if f"REAL EXECUTION: {cmd_line[:40]}" in history_text:
+                continue
+            self.console.print(
+                f"\n[{THEME['secondary']}]▶ {self.s['exec_running']}:[/] "
+                f"[{THEME['dim']}]{cmd_line[:100]}[/]"
+            )
+            try:
+                proc = subprocess.run(
+                    cmd_line, shell=True, capture_output=True,
+                    text=True, timeout=180
+                )
+                output = (proc.stdout or "") + (proc.stderr or "")
+                if output.strip():
+                    preview = "\n".join(output.strip().splitlines()[:50])
+                    self.console.print(f"[{THEME['dim']}]{_resc(preview)}[/]")
+                    results_text.append(
+                        f"=== REAL EXECUTION: {cmd_line[:80]} ===\n{output.strip()}\n"
+                        f"=== EXIT CODE: {proc.returncode} ==="
+                    )
+                else:
+                    results_text.append(
+                        f"=== REAL EXECUTION: {cmd_line[:80]} ===\n"
+                        f"(no output, exit code {proc.returncode})"
+                    )
+            except subprocess.TimeoutExpired:
+                self.console.print(f"[{THEME['warn']}]  ⏱ timeout (180s)[/]")
+                results_text.append(f"=== REAL EXECUTION: {cmd_line[:80]} ===\n(timed out)")
+            except Exception as e:
+                self.console.print(f"[{THEME['error']}]  exec error:[/] {_resc(str(e))}")
+
+        return results_text
+
     def _execute_ai_commands(
         self,
         response: str,
@@ -1181,27 +1316,21 @@ class BingoTerminal:
         _loaded_skills: set | None = None,
     ) -> None:
         """
-        AI가 ```python 또는 ```bash 블록으로 코드를 제시하면 실제로 실행하고
-        결과를 AI에게 피드백 → AI가 실제 데이터로 분석함.
-
-        Full Agent 모드: Python 코드 우선, bash 명령도 지원.
-        SKILL_LOAD: 선언을 감지하면 스킬 내용을 먼저 주입 후 계속 진행.
-        _loaded_skills: 이미 이번 체인에서 로드한 스킬 이름 집합 (재선언 방지)
+        AI가 ```python / ```bash 블록을 제시하면 실행하고 결과를 피드백.
+        재귀 호출 없이 while 루프로 동작 — Python 콜 스택 쌓이지 않음.
+        SKILL_LOAD 체인은 depth로 제한(별도 로직).
         """
-        import re, subprocess, tempfile, os
-        from pathlib import Path
+        from ..models.registry import ModelRegistry
 
         if _loaded_skills is None:
             _loaded_skills = set()
 
-        # 스킬 주입 체인에서만 depth 사용 — 실질 한계는 exec_count < 15
+        # ── SKILL_LOAD: depth 기반 제한 (스킬 체인 전용) ──────────────
         if _depth > 30:
             self._suggest_next_steps()
             return
 
-        # ── SKILL_LOAD: 에이전트 자율 스킬 로드 ─────────────────────────
         skill_names = self._parse_skill_load_request(response)
-        # 이미 이번 체인에서 로드한 스킬은 제외 (무한 재선언 방지)
         new_skills = [s for s in skill_names if s not in _loaded_skills]
         if new_skills:
             _loaded_skills.update(new_skills)
@@ -1218,264 +1347,119 @@ class BingoTerminal:
                         + ", ".join(_loaded_skills)
                     )
                 ))
-                from ..models.registry import ModelRegistry
                 model_cfg = self.config.get_active_model_config()
                 if model_cfg:
                     model = ModelRegistry.build(model_cfg)
                     self.console.print(
-                        f"\n[bold cyan]⚡ {self.s.get('skill_applying', 'Applying skill knowledge...')} [{', '.join(new_skills)}][/bold cyan]"
+                        f"\n[bold cyan]⚡ {self.s.get('skill_applying', 'Applying skill knowledge...')} "
+                        f"[{', '.join(new_skills)}][/bold cyan]"
                     )
                     new_response = self._stream_response(
                         model.chat_stream(self._build_messages(""))
                     )
                     self.history.append(Message(role="assistant", content=new_response))
                     if "```" in new_response:
-                        self._execute_ai_commands(new_response, _depth=_depth+1, _loaded_skills=_loaded_skills)
+                        self._execute_ai_commands(new_response, _depth=_depth + 1, _loaded_skills=_loaded_skills)
                     return
 
-        if "```" not in response:
-            return
+        # ── 메인 에이전트 루프 (while — 재귀 없음) ────────────────────
+        current_response = response
 
-        results_text: list[str] = []
+        while True:
+            # 코드 블록 없으면 종료
+            if "```" not in current_response:
+                break
 
-        # ── agent_tools 자동 설치 (최초 1회) ─────────────────────────
-        _tools_dst = Path.home() / ".bingo" / "agent_tools.py"
-        if not _tools_dst.exists():
-            try:
-                import shutil as _sh
-                _tools_src = Path(__file__).parent.parent / "tools" / "agent_tools.py"
-                if _tools_src.exists():
-                    _tools_dst.parent.mkdir(parents=True, exist_ok=True)
-                    _sh.copy2(str(_tools_src), str(_tools_dst))
-            except Exception:
-                pass
+            # 코드 실행
+            results_text = self._run_code_blocks(current_response, _loaded_skills)
+            if not results_text:
+                break
 
-        # ── Python 블록 실행 (우선) ────────────────────────────────────
-        python_blocks = re.findall(
-            r"```python\s*(.*?)```", response, re.DOTALL
-        )
-        for i, block in enumerate(python_blocks):
-            code = block.strip()
-            if not code:
-                continue
-
-            # agent_tools import 경로 주입 (AI 코드에 없으면 자동 추가)
-            tools_header = (
-                "import sys as _sys, os as _os\n"
-                "_sys.path.insert(0, _os.path.expanduser('~/.bingo'))\n"
-            )
-            if "agent_tools" not in code and "from agent_tools" not in code:
-                code = tools_header + code
-
-            # 임시 파일에 저장 후 실행
-            tmp_dir = Path(tempfile.gettempdir()) / "bingo_agent"
-            tmp_dir.mkdir(exist_ok=True)
-            script_path = tmp_dir / f"agent_script_{i}.py"
-            script_path.write_text(code, encoding="utf-8")
-
-            preview_lines = code.splitlines()[:3]
-            preview = " | ".join(l.strip() for l in preview_lines if l.strip())[:80]
-
-            self.console.print(
-                f"\n[{THEME['secondary']}]▶ {self.s.get('python_exec', 'Python execution')}:[/] "
-                f"[{THEME['dim']}]{preview}...[/]"
+            # 롤백 스냅샷
+            self._rollback.save(
+                agent_state=self._agent_state,
+                history_len=len(self.history),
+                label=f"Loop #{self._exec_loop_count} — {self._agent_state.get('target','?')[:40]}",
             )
 
-            try:
-                proc = subprocess.run(
-                    ["python3", str(script_path)],
-                    capture_output=True, text=True, timeout=120,
-                    env={**os.environ, "PYTHONIOENCODING": "utf-8"},
+            # 결과 압축 (컨텍스트 폭발 방지)
+            raw_results = "\n".join(results_text)
+            if len(raw_results) > 3000:
+                trimmed = (
+                    raw_results[:1500]
+                    + f"\n\n[... {len(raw_results) - 3000} chars trimmed ...]\n\n"
+                    + raw_results[-1500:]
                 )
-                output = (proc.stdout or "") + (proc.stderr or "")
-                if output.strip():
-                    preview_out = "\n".join(output.strip().splitlines()[:60])
-                    # URL 등 특수문자로 인한 Rich MarkupError 방지
-                    from rich.markup import escape as _resc
-                    try:
-                        self.console.print(f"[{THEME['dim']}]{_resc(preview_out)}[/]")
-                    except Exception:
-                        self.console.out(preview_out)
-                    results_text.append(
-                        f"=== PYTHON EXECUTION (script_{i}) ===\n"
-                        f"{output.strip()}\n"
-                        f"=== EXIT: {proc.returncode} ==="
-                    )
-                else:
-                    results_text.append(
-                        f"=== PYTHON EXECUTION (script_{i}) ===\n"
-                        f"(no output, exit={proc.returncode})"
-                    )
-            except subprocess.TimeoutExpired:
-                self.console.print(f"[{THEME['warn']}]  ⏱ timeout (120s)[/]")
-                results_text.append(
-                    f"=== PYTHON EXECUTION (script_{i}) ===\n(timed out after 120s — AI should write a faster/smaller script)"
-                )
-            except Exception as e:
-                from rich.markup import escape as _e
-                self.console.print(f"[{THEME['error']}]  python exec error:[/] {_e(str(e))}")
+            else:
+                trimmed = raw_results
 
-        # ── Bash 블록 실행 (보조) ──────────────────────────────────────
-        # bash는 curl, nmap 등 단순 명령에만 사용
-        bash_blocks = re.findall(
-            r"```(?:bash|sh)\s*(.*?)```", response, re.DOTALL
-        )
+            # 히스토리 슬라이딩 윈도우
+            non_system = [m for m in self.history if m.role != "system"]
+            if len(non_system) > 20:
+                system_msgs = [m for m in self.history if m.role == "system"]
+                self.history = system_msgs + non_system[-16:]
 
-        # bash 실행 허용 목록 (Python으로 못하는 것들)
-        _BASH_ALLOWED = {
-            "curl", "nmap", "nikto", "ffuf", "gobuster", "nuclei",
-            "httpx", "subfinder", "amass", "whatweb", "john", "hashcat",
-            "python3", "python",
-        }
+            self._parse_agent_state(raw_results)
+            state_summary = self._format_agent_state()
+            self._show_token_usage()
+            self._exec_loop_count += 1
 
-        for block in bash_blocks:
-            import shlex
-            joined = block.strip().replace("\\\n", " ")
-            lines = [l.strip() for l in joined.splitlines()
-                     if l.strip() and not l.strip().startswith("#")]
-            if not lines:
-                continue
-            cmd_line = " ".join(lines)
-
-            try:
-                parts = shlex.split(cmd_line)
-            except Exception:
-                continue
-            if not parts:
-                continue
-            binary = parts[0].split("/")[-1]
-            if binary not in _BASH_ALLOWED:
-                continue
-
-            # 이미 실행된 명령이면 스킵
-            history_text = " ".join(m.content for m in self.history if m.role == "user")
-            if f"REAL EXECUTION: {cmd_line[:40]}" in history_text:
-                continue
-
-            self.console.print(
-                f"\n[{THEME['secondary']}]▶ {self.s['exec_running']}:[/] "
-                f"[{THEME['dim']}]{cmd_line[:100]}[/]"
+            injection = (
+                "=== BINGO REAL EXECUTION RESULTS ===\n"
+                + trimmed
+                + "\n=== END REAL RESULTS ===\n\n"
+                + state_summary
+                + "NEXT ACTION: Continue from where you left off. "
+                "DO NOT re-extract already known facts above. "
+                "Proceed to the next unknown step.\n"
+                "- If WAF blocks: use obfuscation variants\n"
+                "- Output TASK_COMPLETE when all credentials are extracted\n"
+                "- NEVER generate simulated output"
             )
-            try:
-                proc = subprocess.run(
-                    cmd_line, shell=True, capture_output=True,
-                    text=True, timeout=180
-                )
-                output = (proc.stdout or "") + (proc.stderr or "")
-                if output.strip():
-                    preview = "\n".join(output.strip().splitlines()[:50])
-                    self.console.print(f"[{THEME['dim']}]{preview}[/]")
-                    results_text.append(
-                        f"=== REAL EXECUTION: {cmd_line[:80]} ===\n"
-                        f"{output.strip()}\n"
-                        f"=== EXIT CODE: {proc.returncode} ==="
-                    )
-                else:
-                    results_text.append(
-                        f"=== REAL EXECUTION: {cmd_line[:80]} ===\n"
-                        f"(no output, exit code {proc.returncode})"
-                    )
-            except subprocess.TimeoutExpired:
-                self.console.print(f"[{THEME['warn']}]  ⏱ timeout (180s)[/]")
-                results_text.append(
-                    f"=== REAL EXECUTION: {cmd_line[:80]} ===\n(timed out)"
-                )
-            except Exception as e:
-                from rich.markup import escape as _e
-                self.console.print(f"[{THEME['error']}]  exec error:[/] {_e(str(e))}")
+            self.history.append(Message(role="user", content=injection))
 
-        if not results_text:
-            return
+            model_cfg = self.config.get_active_model_config()
+            if not model_cfg:
+                break
 
-        # ── 롤백 스냅샷 저장 (루프마다 자동) ─────────────────────────
-        self._rollback.save(
-            agent_state=self._agent_state,
-            history_len=len(self.history),
-            label=f"Loop #{self._exec_loop_count} — {self._agent_state.get('target','?')[:40]}",
-        )
+            _s = self.s
 
-        # 결과 압축: 최대 3000자만 주입 (컨텍스트 폭발 방지)
-        raw_results = "\n".join(results_text)
-        if len(raw_results) > 3000:
-            trimmed = (
-                raw_results[:1500]
-                + f"\n\n[... {len(raw_results) - 3000} chars trimmed for context ...]\n\n"
-                + raw_results[-1500:]
+            # Ctrl+C 체크
+            if self._agent_stop_flag.is_set():
+                self._agent_stop_flag.clear()
+                self.console.print(f"\n[{THEME['warn']}]⚠ {_s.get('agent_interrupted', 'Agent loop interrupted')}[/]\n")
+                self._suggest_next_steps()
+                break
+
+            # AI 피드백
+            model = ModelRegistry.build(model_cfg)
+            self.console.print(f"\n[{THEME['secondary']}]{_s['exec_analyzing']}[/]")
+            followup_response = self._stream_response(
+                model.chat_stream(self._build_messages(""))
             )
-        else:
-            trimmed = raw_results
 
-        # 히스토리 슬라이딩 윈도우
-        non_system = [m for m in self.history if m.role != "system"]
-        if len(non_system) > 20:
-            system_msgs = [m for m in self.history if m.role == "system"]
-            self.history = system_msgs + non_system[-16:]
+            if not followup_response:
+                break
 
-        # 실행 결과에서 주요 사실 자동 파싱 → agent_state 누적
-        self._parse_agent_state(raw_results)
-
-        # agent_state 요약 생성
-        state_summary = self._format_agent_state()
-
-        # 토큰 비용 추적 표시
-        self._show_token_usage()
-
-        # 전용 루프 카운터 증가 (슬라이딩 윈도우 영향 없음)
-        self._exec_loop_count += 1
-
-        # 실행 결과 AI에게 피드백
-        injection = (
-            "=== BINGO REAL EXECUTION RESULTS ===\n"
-            + trimmed
-            + "\n=== END REAL RESULTS ===\n\n"
-            + state_summary
-            + "NEXT ACTION: Continue from where you left off. "
-            "DO NOT re-extract already known facts above. "
-            "Proceed to the next unknown step.\n"
-            "- If WAF blocks: use obfuscation variants\n"
-            "- Output TASK_COMPLETE when all credentials are extracted\n"
-            "- NEVER generate simulated output"
-        )
-        self.history.append(Message(role="user", content=injection))
-
-        from ..models.registry import ModelRegistry
-        model_cfg = self.config.get_active_model_config()
-        if not model_cfg:
-            return
-
-        # ── Ctrl+C 중단 체크 ──────────────────────────────────────
-        _s = self.s
-        if self._agent_stop_flag.is_set():
-            self._agent_stop_flag.clear()
-            self.console.print(f"\n[{THEME['warn']}]⚠ {_s.get('agent_interrupted', 'Agent loop interrupted')}[/]\n")
-            self._suggest_next_steps()
-            return
-
-        model = ModelRegistry.build(model_cfg)
-        self.console.print(f"\n[{THEME['secondary']}]{_s['exec_analyzing']}[/]")
-        followup_response = self._stream_response(
-            model.chat_stream(self._build_messages(""))
-        )
-        if followup_response:
             self.history.append(Message(role="assistant", content=followup_response))
             self._append_to_session_log("assistant", followup_response)
             self._notify_hashes_found(followup_response)
 
-            # ── 작업 완료 감지 → 자동 보고서 ────────────────────────
+            # 작업 완료
             if "TASK_COMPLETE" in followup_response or "MISSION_COMPLETE" in followup_response:
                 self.console.print(f"\n[{THEME['success']}]✅ {_s.get('agent_done', 'Agent task complete')}[/]\n")
                 self._auto_generate_report()
-                return
+                break
 
-            # ── Ctrl+C ────────────────────────────────────────────
+            # Ctrl+C (응답 후)
             if self._agent_stop_flag.is_set():
                 self._agent_stop_flag.clear()
                 self.console.print(f"\n[{THEME['warn']}]⚠ {_s.get('agent_interrupted', 'Agent loop interrupted')}[/]\n")
                 self._auto_generate_report()
                 self._suggest_next_steps()
-                return
+                break
 
-            # ── Stuck 감지: 최근 3루프 결과 동일하면 전략 전환 ──────
+            # Stuck 감지
             _result_hash = str(hash(followup_response[:500]))
             self._recent_results.append(_result_hash)
             if len(self._recent_results) > 5:
@@ -1488,15 +1472,15 @@ class BingoTerminal:
             if _is_stuck:
                 self._stuck_count += 1
                 if self._stuck_count >= 2:
-                    # 2번 연속 stuck → 보고서 생성 후 종료
-                    self.console.print(f"\n[{THEME['warn']}]⚠ {_s.get('agent_stuck', 'Agent stuck — generating report')}...[/]\n")
+                    self.console.print(
+                        f"\n[{THEME['warn']}]⚠ {_s.get('agent_stuck', 'Agent stuck — generating report')}...[/]\n"
+                    )
                     self._auto_generate_report()
                     self._suggest_next_steps()
                     self._stuck_count = 0
                     self._exec_loop_count = 0
-                    return
+                    break
                 else:
-                    # 첫 stuck → AI에게 전략 전환 요청하고 계속
                     self.history.append(Message(
                         role="user",
                         content=(
@@ -1509,23 +1493,53 @@ class BingoTerminal:
                             "Make a decisive pivot NOW. Do NOT repeat the same payload."
                         )
                     ))
-
             else:
-                self._stuck_count = 0  # 진전 있으면 리셋
+                self._stuck_count = 0
 
-            # ── 루프 계속 (최대 30회) ─────────────────────────────
-            if self._exec_loop_count < 30:
-                self.console.print(
-                    f"[{THEME['dim']}]🔄 {_s.get('agent_loop', 'Agent loop')} "
-                    f"{self._exec_loop_count}/30  "
-                    f"({_s.get('agent_ctrl_c', 'Ctrl+C to stop')})[/]"
-                )
-                self._execute_ai_commands(followup_response, _depth=_depth+1, _loaded_skills=_loaded_skills)
-            else:
+            # 최대 루프 체크
+            if self._exec_loop_count >= 30:
                 self._exec_loop_count = 0
                 self.console.print(f"[{THEME['warn']}]⚠ {_s.get('agent_max_loop', 'Agent max loops reached')}[/]")
                 self._auto_generate_report()
                 self._suggest_next_steps()
+                break
+
+            # 루프 상태 표시
+            self.console.print(
+                f"[{THEME['dim']}]🔄 {_s.get('agent_loop', 'Agent loop')} "
+                f"{self._exec_loop_count}/30  "
+                f"({_s.get('agent_ctrl_c', 'Ctrl+C to stop')})[/]"
+            )
+
+            # 스킬 로드 체크 (followup에 새 SKILL_LOAD 있으면 주입)
+            new_skill_names = self._parse_skill_load_request(followup_response)
+            new_new_skills = [s for s in new_skill_names if s not in _loaded_skills]
+            if new_new_skills:
+                _loaded_skills.update(new_new_skills)
+                skill_content = self._load_skill_content(new_new_skills)
+                if skill_content:
+                    self.history.append(Message(
+                        role="user",
+                        content=(
+                            "=== SKILL CONTENT INJECTED ===\n"
+                            + skill_content
+                            + "\n=== END SKILLS ===\n"
+                            "Continue using this expert knowledge. "
+                            "Do NOT redeclare loaded skills: "
+                            + ", ".join(_loaded_skills)
+                        )
+                    ))
+                    skill_model = ModelRegistry.build(model_cfg)
+                    self.console.print(
+                        f"\n[bold cyan]⚡ {_s.get('skill_applying', 'Applying skill...')} "
+                        f"[{', '.join(new_new_skills)}][/bold cyan]"
+                    )
+                    followup_response = self._stream_response(
+                        skill_model.chat_stream(self._build_messages(""))
+                    )
+                    self.history.append(Message(role="assistant", content=followup_response))
+
+            current_response = followup_response
 
     def _auto_generate_report(self) -> None:
         """작업 완료/중단 시 지금까지 발견한 내용을 자동으로 마크다운 보고서로 저장."""
