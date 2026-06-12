@@ -894,7 +894,7 @@ class BingoTerminal:
             try:
                 proc = subprocess.run(
                     ["python3", str(script_path)],
-                    capture_output=True, text=True, timeout=60,
+                    capture_output=True, text=True, timeout=120,
                     env={**os.environ, "PYTHONIOENCODING": "utf-8"},
                 )
                 output = (proc.stdout or "") + (proc.stderr or "")
@@ -912,9 +912,9 @@ class BingoTerminal:
                         f"(no output, exit={proc.returncode})"
                     )
             except subprocess.TimeoutExpired:
-                self.console.print(f"[{THEME['warn']}]  ⏱ timeout (60s)[/]")
+                self.console.print(f"[{THEME['warn']}]  ⏱ timeout (120s)[/]")
                 results_text.append(
-                    f"=== PYTHON EXECUTION (script_{i}) ===\n(timed out after 60s)"
+                    f"=== PYTHON EXECUTION (script_{i}) ===\n(timed out after 120s — AI should write a faster/smaller script)"
                 )
             except Exception as e:
                 self.console.print(f"[{THEME['error']}]  python exec error: {e}[/]")
@@ -990,10 +990,31 @@ class BingoTerminal:
         if not results_text:
             return
 
+        # 결과 압축: 최대 3000자만 주입 (컨텍스트 폭발 방지)
+        raw_results = "\n".join(results_text)
+        if len(raw_results) > 3000:
+            # 앞 1500자 + 뒤 1500자 유지 (중간 생략)
+            trimmed = (
+                raw_results[:1500]
+                + f"\n\n[... {len(raw_results) - 3000} chars trimmed for context ...]\n\n"
+                + raw_results[-1500:]
+            )
+        else:
+            trimmed = raw_results
+
+        # 히스토리 슬라이딩 윈도우 — 시스템 메시지 제외하고 최근 10턴만 유지
+        # 컨텍스트가 너무 커지면 DeepSeek 서버가 연결을 끊음
+        non_system = [m for m in self.history if m.role != "system"]
+        if len(non_system) > 20:
+            # 가장 오래된 user/assistant 쌍 4개 제거
+            system_msgs = [m for m in self.history if m.role == "system"]
+            recent = non_system[-16:]
+            self.history = system_msgs + recent
+
         # 실행 결과 AI에게 피드백
         injection = (
             "=== BINGO REAL EXECUTION RESULTS ===\n"
-            + "\n".join(results_text)
+            + trimmed
             + "\n=== END REAL RESULTS ===\n\n"
             "Analyze the REAL results above.\n"
             "- Extract all findings (vulnerabilities, DBs, tables, credentials, hashes)\n"
