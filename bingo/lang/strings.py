@@ -437,8 +437,13 @@ _STRINGS = {
     "found":               {"ko": "발견",                "zh": "发现",             "en": "Found"},
     "not_found":           {"ko": "없음",                "zh": "未找到",           "en": "Not found"},
     "target":              {"ko": "타겟",                "zh": "目标",             "en": "Target"},
-    "next_steps_title":    {"ko": "다음 선택지",         "zh": "下一步选项",       "en": "Next Options"},
-    "progress_summary":    {"ko": "현황 요약",           "zh": "进展摘要",         "en": "Summary"},
+    "next_steps_title":    {"ko": "다음 선택지",              "zh": "下一步选项",           "en": "Next Options"},
+    "progress_summary":    {"ko": "현황 요약",                "zh": "进展摘要",             "en": "Summary"},
+    "agent_stuck":         {"ko": "Agent 막힘 — 자동 보고서 생성 중",
+                            "zh": "Agent 卡住 — 正在生成报告",
+                            "en": "Agent stuck — generating report"},
+    "strategy_change":     {"ko": "전략 전환 요청",           "zh": "请求切换策略",          "en": "Strategy change requested"},
+    "report_auto":         {"ko": "자동 보고서",              "zh": "自动报告",             "en": "Auto report"},
 }
 
 

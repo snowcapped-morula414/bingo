@@ -1489,7 +1489,7 @@ class BingoTerminal:
                 self._stuck_count += 1
                 if self._stuck_count >= 2:
                     # 2번 연속 stuck → 보고서 생성 후 종료
-                    self.console.print(f"\n[{THEME['warn']}]⚠ Agent stuck — 자동 보고서 생성 중...[/]\n")
+                    self.console.print(f"\n[{THEME['warn']}]⚠ {_s.get('agent_stuck', 'Agent stuck — generating report')}...[/]\n")
                     self._auto_generate_report()
                     self._suggest_next_steps()
                     self._stuck_count = 0
@@ -1556,6 +1556,16 @@ class BingoTerminal:
         ]
         context = "\n\n---\n\n".join(last_assistant_msgs[-4:])[:3000]
 
+        _s = self.s
+        _sec = {
+            "summary":  {"ko": "요약",           "zh": "摘要",           "en": "Summary"},
+            "vulns":    {"ko": "발견된 취약점",   "zh": "发现的漏洞",     "en": "Vulnerabilities Found"},
+            "evidence": {"ko": "증거 (페이로드)", "zh": "证据（载荷）",   "en": "Evidence (Payloads)"},
+            "creds":    {"ko": "추출된 자격증명", "zh": "提取的凭据",     "en": "Credentials Extracted"},
+            "fix":      {"ko": "권고 조치",       "zh": "修复建议",       "en": "Recommended Fix"},
+        }
+        def _h(key): return _sec[key].get(_lang, _sec[key]["en"])
+
         prompt_msg = Message(
             role="user",
             content=(
@@ -1563,14 +1573,15 @@ class BingoTerminal:
                 f"Target: {target}\n"
                 f"Known state: {_state}\n\n"
                 f"Recent findings:\n{context}\n\n"
-                f"Write a concise penetration test report in {_lang_label} with:\n"
+                f"Write a concise penetration test report in {_lang_label}.\n"
+                f"Use EXACTLY these section headers:\n"
                 f"# Target: {target}\n"
-                f"## Summary (2-3 sentences)\n"
-                f"## Vulnerabilities Found (list with severity)\n"
-                f"## Evidence (key responses/payloads that confirmed the vuln)\n"
-                f"## Credentials / Data Extracted (if any)\n"
-                f"## Recommended Fix\n\n"
-                f"NO code blocks. Plain markdown only."
+                f"## {_h('summary')}\n"
+                f"## {_h('vulns')} (severity: Critical/High/Medium/Low)\n"
+                f"## {_h('evidence')}\n"
+                f"## {_h('creds')}\n"
+                f"## {_h('fix')}\n\n"
+                f"NO code blocks. Plain markdown only. Be concise."
             )
         )
 
