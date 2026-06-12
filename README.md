@@ -32,37 +32,39 @@ bash install.sh
 
 ### Windows
 
-> ⚠️ **CMD(명령 프롬프트)가 아닌 PowerShell에서 실행해야 합니다.**
+> ⚠️ **반드시 PowerShell에서 실행** (CMD 불가)
 > 시작 → `PowerShell` 검색 → **우클릭 → 관리자 권한으로 실행**
 
-**방법 1 — PowerShell 원클릭 설치:**
+**방법 1 — 자동 설치 (권장):**
 ```powershell
 irm https://raw.githubusercontent.com/bingook/bingo/main/install.ps1 | iex
 ```
 
-**방법 2 — 실행 정책 오류가 나면:**
+**방법 2 — 실행 정책 오류 시:**
 ```powershell
-Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
+Set-ExecutionPolicy RemoteSigned -Scope CurrentUser -Force
 irm https://raw.githubusercontent.com/bingook/bingo/main/install.ps1 | iex
 ```
 
-**방법 3 — git clone 후 설치:**
+**방법 3 — 수동 설치 (스크립트 없이, 가장 확실):**
 ```powershell
-git clone https://github.com/bingook/bingo.git
-cd bingo
-.\install.ps1
+git clone https://github.com/bingook/bingo.git $env:USERPROFILE\bingo
+cd $env:USERPROFILE\bingo
+python -m pip install -e .
+python -m bingo
 ```
 
-**방법 4 — Python이 있으면 pip로 직접:**
+**방법 4 — git 없을 때:**
 ```powershell
-pip install httpx rich prompt_toolkit
-git clone https://github.com/bingook/bingo.git
-cd bingo
-pip install -e .
-bingo
+Invoke-WebRequest "https://github.com/bingook/bingo/archive/main.zip" -OutFile "$env:TEMP\bingo.zip" -UseBasicParsing
+Expand-Archive "$env:TEMP\bingo.zip" "$env:USERPROFILE" -Force
+Rename-Item "$env:USERPROFILE\bingo-main" "$env:USERPROFILE\bingo"
+cd "$env:USERPROFILE\bingo"
+python -m pip install -e .
+python -m bingo
 ```
 
-> **Requirements:** Python 3.10+, PowerShell 5.0+
+> **Requirements:** Python 3.10+, PowerShell 5.1+
 
 ---
 
