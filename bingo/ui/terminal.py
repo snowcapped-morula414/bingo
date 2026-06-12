@@ -122,10 +122,7 @@ class BingoTerminal:
                 raise SystemExit(0)
             self._agent_stop_flag.set()
             self._stop_crack_flag.set()
-            self.console.print(
-                f"\n[{THEME['warn']}]⚠ Ctrl+C — Agent 루프 중단 중... "
-                f"(한 번 더 누르면 완전 종료)[/]"
-            )
+            self.console.print(f"\n[{THEME['warn']}]⚠ {self.s.get('agent_stop_warn', 'Ctrl+C — stopping agent...')}[/]")
 
         signal.signal(signal.SIGINT, _sigint_handler)
 
@@ -242,6 +239,17 @@ class BingoTerminal:
         model_cfg = self.config.get_active_model_config()
         provider = model_cfg.provider if model_cfg else "deepseek"
         system_text = get_pentest_system_prompt(provider)
+
+        # 언어 설정을 시스템 프롬프트에 강제 주입 (매 요청마다)
+        _lang = getattr(self.config, "lang", "en")
+        _lang_label = {"ko": "Korean", "zh": "Chinese (Simplified, 简体中文)", "en": "English"}.get(_lang, "English")
+        system_text += (
+            f"\n\n[ABSOLUTE LANGUAGE RULE — TOP PRIORITY]\n"
+            f"User language setting: {_lang_label} (code={_lang})\n"
+            f"EVERY word of your response MUST be in {_lang_label} only. "
+            f"Do NOT use Korean unless lang=ko. Do NOT mix languages.\n"
+        )
+
         if skill_context:
             system_text += "\n\n---\n## RELEVANT SKILL REFERENCES\n" + skill_context
         return Message(role="system", content=system_text)
@@ -564,11 +572,12 @@ class BingoTerminal:
                 intent = lines[0][:50] if lines else "스크립트"
 
             icon = "🐍" if lang == "python" else "⚡"
+            _wait_label = self.s.get("exec_waiting", "Waiting to execute")
             return (
-                f"\n[dim]┌─ {icon} {lang.upper()} 스크립트 [{intent}] — {total}줄[/dim]\n"
+                f"\n[dim]┌─ {icon} {lang.upper()} [{intent}] — {total}L[/dim]\n"
                 f"[dim]│  {lines[0][:70] if lines else ''}[/dim]\n"
                 f"[dim]│  {lines[1][:70] if len(lines) > 1 else ''}[/dim]\n"
-                f"[dim]└─ ... (실행 대기 중)[/dim]\n"
+                f"[dim]└─ ... ({_wait_label})[/dim]\n"
             )
 
         # ```python ... ``` 또는 ```bash ... ``` 블록 치환
@@ -892,7 +901,7 @@ class BingoTerminal:
         """N단계 전 상태로 롤백."""
         snap = self._rollback.undo(steps)
         if not snap:
-            self.console.print(f"[{THEME['warn']}]⚠ 롤백할 스냅샷이 없습니다[/]")
+            self.console.print(f"[{THEME['warn']}]⚠ {self.s.get('undo_none', 'No snapshots')}[/]")
             return
         import copy
         self._agent_state = copy.deepcopy(snap.agent_state)
@@ -902,8 +911,8 @@ class BingoTerminal:
             self.history = self.history[:snap.history_len]
         from rich.panel import Panel as _P
         self.console.print(_P(
-            f"[green]✅ 롤백 완료[/green]\n"
-            f"복원 시점: [bold]{snap.label}[/bold]  ({snap.timestamp_str})\n"
+            f"[green]✅ {self.s.get('undo_done', 'Rollback complete')}[/green]\n"
+            f"[bold]{snap.label}[/bold]  ({snap.timestamp_str})\n"
             f"DB: {snap.agent_state.get('db_name', 'N/A')}  "
             f"Tables: {snap.agent_state.get('tables', [])}",
             title="[bold]UNDO[/bold]",
@@ -916,7 +925,7 @@ class BingoTerminal:
         from rich.table import Table as _T
         snaps = self._rollback.list_snapshots()
         if not snaps:
-            self.console.print(f"[{THEME['dim']}]저장된 스냅샷 없음[/]")
+            self.console.print(f"[{THEME['dim']}]{self.s.get('snapshots_empty', 'No saved snapshots')}[/]")
             return
         t = _T(title="[bold]Snapshots[/bold]", border_style="cyan")
         t.add_column("#",     width=3)
@@ -972,7 +981,7 @@ class BingoTerminal:
         from rich.panel import Panel as _Panel
 
         # 툴 자동 설치 확인
-        with self.console.status("[cyan]툴 초기화 중...[/cyan]"):
+        with self.console.status(f"[cyan]{self.s.get('tool_init', 'Initializing tools...')}[/cyan]"):
             try:
                 import shutil as _sh
                 from pathlib import Path as _P
@@ -988,8 +997,8 @@ class BingoTerminal:
                 self.console.print(f"[dim]툴 설치 경고: {_e}[/dim]")
 
         self.console.print(_Panel(
-            f"[bold cyan]🚀 MULTI-AGENT SCAN[/bold cyan]\n"
-            f"[dim]Recon + SQLi + WebVuln + Auth — 동시 실행[/dim]\n"
+            f"[bold cyan]🚀 {self.s.get('mscan_title', 'Multi-Agent Scan')}[/bold cyan]\n"
+            f"[dim]{self.s.get('mscan_subtitle', 'Recon + SQLi + WebVuln + Auth — parallel')}[/dim]\n"
             f"[bold]{url}[/bold]",
             border_style="cyan",
             expand=False,
@@ -1128,14 +1137,13 @@ class BingoTerminal:
 
         Full Agent 모드: Python 코드 우선, bash 명령도 지원.
         SKILL_LOAD: 선언을 감지하면 스킬 내용을 먼저 주입 후 계속 진행.
-        _depth: 재귀 깊이 — 5 초과 시 강제 종료 (무한 루프 방지)
         """
         import re, subprocess, tempfile, os
         from pathlib import Path
 
-        # 무한 재귀 방지 (15루프 * 깊이 3 = 45 최대)
-        if _depth > 15:
-            self.console.print(f"[{THEME['warn']}]⚠ Agent 재귀 깊이 초과(15) — 강제 중단[/]")
+        # exec_count로만 루프를 제어 — _depth 중단은 스킬 주입 체인에만 사용
+        if _depth > 50:
+            self.console.print(f"[{THEME['warn']}]⚠ {self.s.get('agent_depth_exceeded', 'Agent recursion depth exceeded')}[/]")
             return
 
         # ── SKILL_LOAD: 에이전트 자율 스킬 로드 ─────────────────────────
@@ -1160,7 +1168,7 @@ class BingoTerminal:
                 if model_cfg:
                     model = ModelRegistry.build(model_cfg)
                     self.console.print(
-                        f"\n[bold cyan]⚡ 스킬 지식 적용 중...[/bold cyan]"
+                        f"\n[bold cyan]⚡ {self.s.get('skill_applying', 'Applying skill knowledge...')}[/bold cyan]"
                     )
                     new_response = self._stream_response(
                         model.chat_stream(self._build_messages(""))
@@ -1383,15 +1391,14 @@ class BingoTerminal:
             return
 
         # ── Ctrl+C 중단 체크 ──────────────────────────────────────
+        _s = self.s
         if self._agent_stop_flag.is_set():
             self._agent_stop_flag.clear()
-            self.console.print(f"\n[{THEME['warn']}]⚠ Agent 루프 중단됨 (Ctrl+C)[/]\n")
+            self.console.print(f"\n[{THEME['warn']}]⚠ {_s.get('agent_interrupted', 'Agent loop interrupted')}[/]\n")
             return
 
         model = ModelRegistry.build(model_cfg)
-        self.console.print(
-            f"\n[{THEME['secondary']}]{self.s['exec_analyzing']}[/]"
-        )
+        self.console.print(f"\n[{THEME['secondary']}]{_s['exec_analyzing']}[/]")
         followup_response = self._stream_response(
             model.chat_stream(self._build_messages(""))
         )
@@ -1400,32 +1407,28 @@ class BingoTerminal:
             self._append_to_session_log("assistant", followup_response)
             self._notify_hashes_found(followup_response)
 
-            # TASK_COMPLETE 감지 → 루프 종료
             if "TASK_COMPLETE" in followup_response or "MISSION_COMPLETE" in followup_response:
-                self.console.print(f"\n[{THEME['success']}]✅ Agent 작업 완료[/]\n")
+                self.console.print(f"\n[{THEME['success']}]✅ {_s.get('agent_done', 'Agent task complete')}[/]\n")
                 return
 
-            # ── Ctrl+C 중단 체크 ──────────────────────────────────
             if self._agent_stop_flag.is_set():
                 self._agent_stop_flag.clear()
-                self.console.print(f"\n[{THEME['warn']}]⚠ Agent 루프 중단됨 (Ctrl+C)[/]\n")
+                self.console.print(f"\n[{THEME['warn']}]⚠ {_s.get('agent_interrupted', 'Agent loop interrupted')}[/]\n")
                 return
 
-            # Agent 루프: 최대 15턴까지 자율 실행
             exec_count = sum(
                 1 for m in self.history
                 if m.role == "user" and "BINGO REAL EXECUTION RESULTS" in m.content
             )
             if exec_count < 15:
                 self.console.print(
-                    f"[{THEME['dim']}]🔄 Agent 루프 {exec_count + 1}/15  "
-                    f"[dim](Ctrl+C로 중단 가능)[/dim][/]"
+                    f"[{THEME['dim']}]🔄 {_s.get('agent_loop', 'Agent loop')} "
+                    f"{exec_count + 1}/15  "
+                    f"({_s.get('agent_ctrl_c', 'Ctrl+C to stop')})[/]"
                 )
                 self._execute_ai_commands(followup_response, _depth=_depth+1)
             else:
-                self.console.print(
-                    f"[{THEME['warn']}]⚠ Agent 최대 루프(15) 도달 — 직접 다음 명령을 입력하세요[/]"
-                )
+                self.console.print(f"[{THEME['warn']}]⚠ {_s.get('agent_max_loop', 'Agent max loops reached')}[/]")
 
     def _load_agent_state(self) -> dict:
         """저장된 agent_state 로드. 없으면 빈 상태 반환."""
@@ -1547,7 +1550,7 @@ class BingoTerminal:
 
         if loaded:
             self.console.print(
-                f"[bold cyan]⚡ 스킬 로드됨: {', '.join(loaded)}[/bold cyan]"
+                f"[bold cyan]⚡ {self.s.get('skill_loaded', 'Skills loaded')}: {', '.join(loaded)}[/bold cyan]"
             )
         return "\n\n".join(contents)
 

@@ -667,17 +667,35 @@ def get_pentest_system_prompt(provider: str) -> str:
     모든 모델에 UNIVERSAL_PENTEST_CORE를 기반으로 적용하고
     모델별 최적화 레이어를 위에 추가한다.
     """
+    try:
+        from ..config import BingoConfig
+        _cfg = BingoConfig.load()
+        _lang = getattr(_cfg, "lang", "en")
+    except Exception:
+        _lang = "en"
+
+    _lang_names = {"ko": "Korean", "zh": "Chinese (Simplified, 简体中文)", "en": "English"}
+    _lang_label = _lang_names.get(_lang, "English")
+
+    LANG_RULE = (
+        f"\n\n[CRITICAL — OUTPUT LANGUAGE]\n"
+        f"The user's configured language is: {_lang_label} (code: {_lang})\n"
+        f"YOU MUST write ALL your responses, analysis, explanations, comments, and findings "
+        f"EXCLUSIVELY in {_lang_label}. "
+        f"Do NOT output Korean unless the user's language is Korean. "
+        f"Do NOT mix languages. Every single word of your output must be in {_lang_label}.\n"
+    )
+
     p = provider.lower()
     if "deepseek" in p:
-        return UNIVERSAL_PENTEST_CORE + "\n\n" + DEEPSEEK_EXTRA
+        return UNIVERSAL_PENTEST_CORE + LANG_RULE + "\n\n" + DEEPSEEK_EXTRA
     if "glm" in p or "zhipu" in p:
-        return UNIVERSAL_PENTEST_CORE + "\n\n" + GLM_EXTRA
+        return UNIVERSAL_PENTEST_CORE + LANG_RULE + "\n\n" + GLM_EXTRA
     if "claude" in p or "anthropic" in p:
-        return UNIVERSAL_PENTEST_CORE + "\n\n" + CLAUDE_GPT_EXTRA
+        return UNIVERSAL_PENTEST_CORE + LANG_RULE + "\n\n" + CLAUDE_GPT_EXTRA
     if "gpt" in p or "openai" in p:
-        return UNIVERSAL_PENTEST_CORE + "\n\n" + CLAUDE_GPT_EXTRA
-    # 기타 모델 (Qwen, Mistral, Llama 등) → 코어만 적용
-    return UNIVERSAL_PENTEST_CORE
+        return UNIVERSAL_PENTEST_CORE + LANG_RULE + "\n\n" + CLAUDE_GPT_EXTRA
+    return UNIVERSAL_PENTEST_CORE + LANG_RULE
 
 
 def get_warmup_history(provider: str = "deepseek") -> list[dict]:
