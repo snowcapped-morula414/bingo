@@ -117,6 +117,9 @@ class BingoTerminal:
         self._cost_usd: float = 0.0
         # Agent 루프 카운터 — 슬라이딩 윈도우 영향 받지 않는 전용 카운터
         self._exec_loop_count: int = 0
+        # Stuck 감지 — 마지막 N개 결과의 해시값 (반복 시 자동 전략 전환)
+        self._recent_results: list[str] = []
+        self._stuck_count: int = 0
 
     # ── 공개 진입점 ───────────────────────────────────────────────
     def run(self) -> None:
@@ -482,7 +485,9 @@ class BingoTerminal:
             if self._agent_state.get("target") != new_target:
                 self._reset_agent_state()
                 self._agent_state["target"] = new_target
-                self._exec_loop_count = 0  # 새 타겟 — 루프 카운터 리셋
+                self._exec_loop_count = 0
+                self._stuck_count = 0
+                self._recent_results = []
         waf_context = self._auto_waf_scan(text)
 
         # PentAGI식 XML 태스크 래핑 (보안 관련 요청만)
@@ -1456,27 +1461,161 @@ class BingoTerminal:
             self._append_to_session_log("assistant", followup_response)
             self._notify_hashes_found(followup_response)
 
+            # ── 작업 완료 감지 → 자동 보고서 ────────────────────────
             if "TASK_COMPLETE" in followup_response or "MISSION_COMPLETE" in followup_response:
                 self.console.print(f"\n[{THEME['success']}]✅ {_s.get('agent_done', 'Agent task complete')}[/]\n")
+                self._auto_generate_report()
                 return
 
+            # ── Ctrl+C ────────────────────────────────────────────
             if self._agent_stop_flag.is_set():
                 self._agent_stop_flag.clear()
                 self.console.print(f"\n[{THEME['warn']}]⚠ {_s.get('agent_interrupted', 'Agent loop interrupted')}[/]\n")
+                self._auto_generate_report()
                 self._suggest_next_steps()
                 return
 
-            if self._exec_loop_count < 15:
+            # ── Stuck 감지: 최근 3루프 결과 동일하면 전략 전환 ──────
+            _result_hash = str(hash(followup_response[:500]))
+            self._recent_results.append(_result_hash)
+            if len(self._recent_results) > 5:
+                self._recent_results.pop(0)
+
+            _is_stuck = (
+                len(self._recent_results) >= 3
+                and len(set(self._recent_results[-3:])) == 1
+            )
+            if _is_stuck:
+                self._stuck_count += 1
+                if self._stuck_count >= 2:
+                    # 2번 연속 stuck → 보고서 생성 후 종료
+                    self.console.print(f"\n[{THEME['warn']}]⚠ Agent stuck — 자동 보고서 생성 중...[/]\n")
+                    self._auto_generate_report()
+                    self._suggest_next_steps()
+                    self._stuck_count = 0
+                    self._exec_loop_count = 0
+                    return
+                else:
+                    # 첫 stuck → AI에게 전략 전환 요청하고 계속
+                    self.history.append(Message(
+                        role="user",
+                        content=(
+                            "[STRATEGY CHANGE REQUIRED]\n"
+                            "The last 3 loops produced identical results — you are STUCK.\n"
+                            "You MUST switch to a completely different attack vector:\n"
+                            "- If WAF blocked all SQL: try Time-based, different param, or header injection\n"
+                            "- If no SQLi: pivot to XSS, LFI, IDOR, or auth bypass\n"
+                            "- If stuck on extraction: try a shorter query or different encoding\n"
+                            "Make a decisive pivot NOW. Do NOT repeat the same payload."
+                        )
+                    ))
+
+            else:
+                self._stuck_count = 0  # 진전 있으면 리셋
+
+            # ── 루프 계속 (최대 30회) ─────────────────────────────
+            if self._exec_loop_count < 30:
                 self.console.print(
                     f"[{THEME['dim']}]🔄 {_s.get('agent_loop', 'Agent loop')} "
-                    f"{self._exec_loop_count}/15  "
+                    f"{self._exec_loop_count}/30  "
                     f"({_s.get('agent_ctrl_c', 'Ctrl+C to stop')})[/]"
                 )
                 self._execute_ai_commands(followup_response, _depth=_depth+1, _loaded_skills=_loaded_skills)
             else:
-                self._exec_loop_count = 0  # 다음 새 작업을 위해 리셋
+                self._exec_loop_count = 0
                 self.console.print(f"[{THEME['warn']}]⚠ {_s.get('agent_max_loop', 'Agent max loops reached')}[/]")
+                self._auto_generate_report()
                 self._suggest_next_steps()
+
+    def _auto_generate_report(self) -> None:
+        """작업 완료/중단 시 지금까지 발견한 내용을 자동으로 마크다운 보고서로 저장."""
+        from ..models.registry import ModelRegistry
+        from rich.rule import Rule
+        from pathlib import Path
+        import datetime
+
+        model_cfg = self.config.get_active_model_config()
+        if not model_cfg:
+            return
+
+        _lang = getattr(self.config, "lang", "en")
+        _lang_label = {"ko": "Korean", "zh": "Chinese (Simplified)", "en": "English"}.get(_lang, "English")
+        _state = self._agent_state
+        target = _state.get("target", "unknown")
+
+        # 보고서 저장 경로
+        ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        safe_target = target.replace("https://", "").replace("http://", "").replace("/", "_")[:30]
+        report_dir = Path.home() / ".config" / "bingo" / "reports"
+        report_dir.mkdir(parents=True, exist_ok=True)
+        report_path = report_dir / f"report_{safe_target}_{ts}.md"
+
+        # AI에게 보고서 생성 요청 (히스토리 오염 없이)
+        last_assistant_msgs = [
+            m.content for m in self.history[-12:] if m.role == "assistant"
+        ]
+        context = "\n\n---\n\n".join(last_assistant_msgs[-4:])[:3000]
+
+        prompt_msg = Message(
+            role="user",
+            content=(
+                f"[GENERATE FINAL PENTEST REPORT]\n\n"
+                f"Target: {target}\n"
+                f"Known state: {_state}\n\n"
+                f"Recent findings:\n{context}\n\n"
+                f"Write a concise penetration test report in {_lang_label} with:\n"
+                f"# Target: {target}\n"
+                f"## Summary (2-3 sentences)\n"
+                f"## Vulnerabilities Found (list with severity)\n"
+                f"## Evidence (key responses/payloads that confirmed the vuln)\n"
+                f"## Credentials / Data Extracted (if any)\n"
+                f"## Recommended Fix\n\n"
+                f"NO code blocks. Plain markdown only."
+            )
+        )
+
+        temp_messages = [self._get_system_message("")] + self.history[-8:] + [prompt_msg]
+
+        self.console.print(Rule(
+            f"[bold green]📋 {self.s.get('report_generating', 'Generating report')}[/bold green]",
+            style="green"
+        ))
+
+        try:
+            model = ModelRegistry.build(model_cfg)
+            full = ""
+            self.console.print(f"\n[{THEME['secondary']}]bingo[/] [{THEME['dim']}]▸[/]", end=" ")
+
+            with Live(console=self.console, refresh_per_second=15, transient=True) as live:
+                from rich.text import Text as _Text
+                for chunk in model.chat_stream(temp_messages):
+                    if chunk.error:
+                        live.stop()
+                        self._error(chunk.error)
+                        return
+                    if chunk.text:
+                        full += chunk.text
+                        live.update(_Text(full, style="white"))
+
+            if full.strip():
+                self.console.print()
+                from rich.markup import escape as _esc
+                from rich.panel import Panel as _Panel
+                self.console.print(_Panel(
+                    _esc(full.strip()),
+                    title=f"[bold green]📋 {self.s.get('report_saved', 'Report')}[/bold green]",
+                    border_style="green",
+                    padding=(1, 2),
+                ))
+                # 파일로 저장
+                report_path.write_text(full.strip(), encoding="utf-8")
+                self.console.print(
+                    f"\n[{THEME['success']}]💾 {self.s.get('report_saved', 'Report saved')}: "
+                    f"[bold]{report_path}[/bold][/]\n"
+                )
+
+        except Exception as e:
+            self._error(f"report error: {e}")
 
     def _suggest_next_steps(self) -> None:
         """Agent 루프 중단 시 AI가 현황 요약 + 다음 선택지 3개를 제시한다.
