@@ -1453,7 +1453,23 @@ class BingoTerminal:
             # 코드 실행
             results_text = self._run_code_blocks(current_response, _loaded_skills)
             if not results_text:
-                break
+                # 코드 블록은 있었지만 실행 결과 없음 → AI에게 알리고 계속
+                _lang = getattr(self.config, "lang", "en")
+                _no_output_msg = {
+                    "ko": "스크립트가 출력 없이 종료되었습니다. 원인을 분석하고 수정된 코드를 작성하세요.",
+                    "zh": "脚本执行完毕但没有输出。请分析原因并重新编写修正后的代码。",
+                    "en": "Scripts ran but produced no output. Analyze why and write corrected code.",
+                }.get(_lang, "Scripts produced no output. Write corrected code.")
+                self.history.append(Message(role="user", content=f"[EXECUTION RESULT]\n{_no_output_msg}"))
+                model_cfg2 = self.config.get_active_model_config()
+                if not model_cfg2:
+                    break
+                from ..models.registry import ModelRegistry as _MR2
+                _m2 = _MR2.build(model_cfg2)
+                current_response = self._stream_response(_m2.chat_stream(self._build_messages("")))
+                if current_response:
+                    self.history.append(Message(role="assistant", content=current_response))
+                continue
 
             # 롤백 스냅샷
             self._rollback.save(
@@ -1521,7 +1537,19 @@ class BingoTerminal:
             )
 
             if not followup_response:
-                break
+                # API 응답 없음 → 잠시 대기 후 재시도
+                import time as _t
+                _t.sleep(3)
+                model_cfg3 = self.config.get_active_model_config()
+                if not model_cfg3:
+                    break
+                from ..models.registry import ModelRegistry as _MR3
+                _m3 = _MR3.build(model_cfg3)
+                followup_response = self._stream_response(
+                    _m3.chat_stream(self._build_messages(""))
+                )
+                if not followup_response:
+                    break  # 재시도도 실패하면 종료
 
             self.history.append(Message(role="assistant", content=followup_response))
             self._append_to_session_log("assistant", followup_response)
