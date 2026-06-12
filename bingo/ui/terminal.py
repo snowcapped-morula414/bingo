@@ -115,6 +115,8 @@ class BingoTerminal:
         # 토큰 / 비용 추적
         self._token_usage: dict = {"prompt": 0, "completion": 0, "total": 0}
         self._cost_usd: float = 0.0
+        # Agent 루프 카운터 — 슬라이딩 윈도우 영향 받지 않는 전용 카운터
+        self._exec_loop_count: int = 0
 
     # ── 공개 진입점 ───────────────────────────────────────────────
     def run(self) -> None:
@@ -480,6 +482,7 @@ class BingoTerminal:
             if self._agent_state.get("target") != new_target:
                 self._reset_agent_state()
                 self._agent_state["target"] = new_target
+                self._exec_loop_count = 0  # 새 타겟 — 루프 카운터 리셋
         waf_context = self._auto_waf_scan(text)
 
         # PentAGI식 XML 태스크 래핑 (보안 관련 요청만)
@@ -607,7 +610,18 @@ class BingoTerminal:
                 return _summarize_code(lang if lang in ("python", "bash") else "python", code)
             return m.group(0)
 
-        return re.sub(r"```(\w*)\n(.*?)```", replacer, text, flags=re.DOTALL)
+        result = re.sub(r"```(\w*)\n(.*?)```", replacer, text, flags=re.DOTALL)
+        # 스트리밍 중 닫히지 않은 코드 블록도 접기
+        result = re.sub(
+            r"```(\w+)\n((?:.|\n){30,}?)$",
+            lambda m: _summarize_code(
+                m.group(1) if m.group(1) in ("python", "bash") else "python",
+                m.group(2)
+            ),
+            result,
+            flags=re.DOTALL,
+        )
+        return result
 
     def _stream_response(self, stream: Iterator[StreamChunk]) -> str:
         full = ""
@@ -1369,14 +1383,10 @@ class BingoTerminal:
             return
 
         # ── 롤백 스냅샷 저장 (루프마다 자동) ─────────────────────────
-        exec_count_now = sum(
-            1 for m in self.history
-            if m.role == "user" and "BINGO REAL EXECUTION RESULTS" in m.content
-        )
         self._rollback.save(
             agent_state=self._agent_state,
             history_len=len(self.history),
-            label=f"Loop #{exec_count_now + 1} — {self._agent_state.get('target','?')[:40]}",
+            label=f"Loop #{self._exec_loop_count} — {self._agent_state.get('target','?')[:40]}",
         )
 
         # 결과 압축: 최대 3000자만 주입 (컨텍스트 폭발 방지)
@@ -1404,6 +1414,9 @@ class BingoTerminal:
 
         # 토큰 비용 추적 표시
         self._show_token_usage()
+
+        # 전용 루프 카운터 증가 (슬라이딩 윈도우 영향 없음)
+        self._exec_loop_count += 1
 
         # 실행 결과 AI에게 피드백
         injection = (
@@ -1453,18 +1466,15 @@ class BingoTerminal:
                 self._suggest_next_steps()
                 return
 
-            exec_count = sum(
-                1 for m in self.history
-                if m.role == "user" and "BINGO REAL EXECUTION RESULTS" in m.content
-            )
-            if exec_count < 15:
+            if self._exec_loop_count < 15:
                 self.console.print(
                     f"[{THEME['dim']}]🔄 {_s.get('agent_loop', 'Agent loop')} "
-                    f"{exec_count + 1}/15  "
+                    f"{self._exec_loop_count}/15  "
                     f"({_s.get('agent_ctrl_c', 'Ctrl+C to stop')})[/]"
                 )
                 self._execute_ai_commands(followup_response, _depth=_depth+1, _loaded_skills=_loaded_skills)
             else:
+                self._exec_loop_count = 0  # 다음 새 작업을 위해 리셋
                 self.console.print(f"[{THEME['warn']}]⚠ {_s.get('agent_max_loop', 'Agent max loops reached')}[/]")
                 self._suggest_next_steps()
 
