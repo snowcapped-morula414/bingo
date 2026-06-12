@@ -450,6 +450,9 @@ _STRINGS = {
     "recon_stack":         {"ko": "기술 스택",                "zh": "技术栈",               "en": "tech stack"},
     "exec_parallel":       {"ko": "병렬 실행 중",             "zh": "并行执行中",            "en": "Running"},
     "exec_scripts":        {"ko": "개 스크립트 동시 실행",    "zh": "个脚本并行",            "en": "scripts in parallel"},
+    "exec_timeout_soft":   {"ko": "소프트 타임아웃 — 부분 결과 수집 중",
+                            "zh": "软超时 — 正在收集部分结果",
+                            "en": "soft timeout — collecting partial results"},
 }
 
 

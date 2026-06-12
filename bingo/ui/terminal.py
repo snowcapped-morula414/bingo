@@ -1372,21 +1372,90 @@ class BingoTerminal:
                     self.console.print(f"[{THEME['error']}]  exec error:[/] {_resc(str(e))}")
                 results_text[slot] = f"=== EXEC ERROR: {e} ==="
 
+        # 프로세스 객체 저장 (소프트 타임아웃 시 종료용)
+        procs: list = []
+        _orig_run_task = _run_task
+
+        proc_list_lock = threading.Lock()
+        proc_registry: list = []
+
+        def _tracked_run_task(task: dict, slot: int) -> None:
+            try:
+                if task["type"] == "python":
+                    p = subprocess.Popen(
+                        ["python3", task["path"]],
+                        stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                        env={**os.environ, "PYTHONIOENCODING": "utf-8"},
+                    )
+                else:
+                    p = subprocess.Popen(
+                        task["cmd"], shell=True,
+                        stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                    )
+                with proc_list_lock:
+                    proc_registry.append(p)
+                stdout, stderr = p.communicate()
+                output = (stdout.decode("utf-8", "replace") + stderr.decode("utf-8", "replace"))
+                label = f"script_{task.get('idx', slot)}" if task["type"] == "python" else task["cmd"][:80]
+                prefix = "PYTHON EXECUTION" if task["type"] == "python" else "REAL EXECUTION"
+                if output.strip():
+                    preview_out = "\n".join(output.strip().splitlines()[:60])
+                    with _lock:
+                        try:
+                            self.console.print(f"[{THEME['dim']}]{_resc(preview_out)}[/]")
+                        except Exception:
+                            self.console.out(preview_out)
+                    results_text[slot] = f"=== {prefix} ({label}) ===\n{output.strip()}\n=== EXIT: {p.returncode} ==="
+                else:
+                    results_text[slot] = f"=== {prefix} ({label}) ===\n(no output, exit={p.returncode})"
+            except Exception as e:
+                with _lock:
+                    self.console.print(f"[{THEME['error']}]  exec error:[/] {_resc(str(e))}")
+                results_text[slot] = f"=== EXEC ERROR: {e} ==="
+
         threads = [
-            threading.Thread(target=_run_task, args=(task, i), daemon=True)
+            threading.Thread(target=_tracked_run_task, args=(task, i), daemon=True)
             for i, task in enumerate(tasks)
         ]
         for t in threads:
             t.start()
 
-        # 모든 스크립트 완료까지 대기 (타임아웃 없음)
+        # 30초마다 진행 상황 표시 + 10분 소프트 타임아웃
         _s = self.s
         self.console.print(
             f"[{THEME['dim']}]⏳ {_s.get('exec_parallel', 'Running')} "
             f"{len(threads)} {_s.get('exec_scripts', 'scripts in parallel')}...[/]"
         )
-        for t in threads:
-            t.join()
+
+        SOFT_TIMEOUT = 600   # 10분
+        HEARTBEAT    = 30    # 30초마다 상태 표시
+        elapsed = 0
+        while any(t.is_alive() for t in threads):
+            for t in threads:
+                t.join(timeout=HEARTBEAT)
+            elapsed += HEARTBEAT
+            if any(t.is_alive() for t in threads):
+                self.console.print(
+                    f"[{THEME['dim']}]  ⏱ {elapsed}s {_s.get('exec_running', 'running')}...[/]"
+                )
+            if elapsed >= SOFT_TIMEOUT:
+                # 소프트 타임아웃 — 실행 중인 프로세스 종료 후 결과 수집
+                self.console.print(
+                    f"[{THEME['warn']}]⚠ {SOFT_TIMEOUT}s {_s.get('exec_timeout_soft', 'soft timeout — collecting partial results')}[/]"
+                )
+                with proc_list_lock:
+                    for p in proc_registry:
+                        try:
+                            p.terminate()
+                        except Exception:
+                            pass
+                for t in threads:
+                    t.join(timeout=5)
+                # 미완료 슬롯에 타임아웃 표시
+                for i, r in enumerate(results_text):
+                    if not r:
+                        results_text[i] = f"=== EXECUTION TIMEOUT ({SOFT_TIMEOUT}s) — AI should write faster/chunked script ==="
+                break
 
         return [r for r in results_text if r]
 
