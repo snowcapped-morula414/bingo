@@ -1664,6 +1664,28 @@ class BingoTerminal:
                 self._auto_generate_report()
                 break
 
+            # 타겟 실패 감지 — 더 이상 진행 불가
+            if "TARGET_FAILED" in followup_response:
+                _lang = getattr(self.config, "lang", "en")
+                _fail_msg = {
+                    "ko": "❌ 타겟 공략 실패 — 이 타겟에서는 취약점을 확인할 수 없습니다.",
+                    "zh": "❌ 目标攻击失败 — 无法在此目标上确认漏洞。",
+                    "en": "❌ Target failed — no confirmed vulnerability on this target.",
+                }.get(_lang, "❌ Target failed.")
+                _next_msg = {
+                    "ko": "다른 URL/파라미터 또는 다른 타겟 도메인을 시도하세요.",
+                    "zh": "请尝试不同的URL/参数或其他目标域名。",
+                    "en": "Try a different URL/parameter or a different target domain.",
+                }.get(_lang, "Try a different target.")
+                from rich.panel import Panel as _Panel
+                self.console.print(_Panel(
+                    f"{_fail_msg}\n\n{_next_msg}",
+                    title=f"[bold red]TARGET_FAILED[/bold red]",
+                    border_style="red",
+                ))
+                self._auto_generate_report()
+                break
+
             # Ctrl+C (응답 후)
             if self._agent_stop_flag.is_set():
                 self._agent_stop_flag.clear()
