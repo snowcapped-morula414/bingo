@@ -182,13 +182,21 @@ class BingoTerminal:
         model_cfg = self.config.get_active_model_config()
         status = f"[{THEME['secondary']}]{model_cfg.display_name()}[/]" if model_cfg else f"[{THEME['warn']}]no model[/]"
         lang_label = SUPPORTED_LANGS.get(self.config.lang, self.config.lang)
-        # hack-skills 카운트
+        # 전체 스킬 수 (hack-skills 102 + 내장 6 + local 5 + DB 235)
         _hs_dir = Path(__file__).parent.parent / "skills" / "hack-skills"
-        _skill_count = sum(1 for d in _hs_dir.iterdir() if d.is_dir() and (d / "SKILL.md").exists()) if _hs_dir.exists() else 0
+        _hs_count = sum(1 for d in _hs_dir.iterdir() if d.is_dir() and (d / "SKILL.md").exists()) if _hs_dir.exists() else 0
+        try:
+            from ..skills.skills_data import SKILLS_DB
+            from ..skills.skills_data2 import SKILLS_DB_2
+            from ..skills.skills_data3 import SKILLS_DB_3
+            _db_count = len({**SKILLS_DB, **SKILLS_DB_2, **SKILLS_DB_3})
+        except Exception:
+            _db_count = 0
+        _total = _hs_count + 6 + 5 + _db_count
         self.console.print(
             f"  [{THEME['dim']}]lang:[/] {lang_label}   "
             f"[{THEME['dim']}]model:[/] {status}   "
-            f"[{THEME['dim']}]skills:[/] [{THEME['success']}]{_skill_count} ready[/]\n"
+            f"[{THEME['dim']}]skills:[/] [{THEME['success']}]{_total} ready[/]\n"
         )
 
     def _print_status_bar(self) -> None:
@@ -2162,19 +2170,55 @@ class BingoTerminal:
         self._save_agent_state()
 
     # ── 스킬 시스템 (에이전트 자율 판단) ─────────────────────────
+    @staticmethod
+    def _format_db_skill(sid: str, sk: dict) -> str:
+        """skills_data 항목 → 마크다운 텍스트"""
+        lines = [f"### {sk['name']} [{sid}]",
+                 f"**{sk.get('desc', '')}**"]
+        if sk.get("tools"):
+            lines.append(f"Tools: {', '.join(sk['tools'])}")
+        if sk.get("commands"):
+            lines.append("Commands:")
+            for cmd in sk["commands"][:6]:
+                lines.append(f"  `{cmd}`")
+        if sk.get("payloads"):
+            lines.append("Payloads:")
+            for p in sk["payloads"][:8]:
+                lines.append(f"  - {p}")
+        if sk.get("notes"):
+            lines.append(f"Notes: {sk['notes']}")
+        return "\n".join(lines)
+
     def _load_skill_content(self, skill_names: list[str]) -> str:
         """지정된 스킬 파일을 읽어 내용 반환.
-        검색 순서: skills/{name}/ → skills/hack-skills/{name}/ → skills/local_skills/{name}/
+
+        검색 순서:
+          1. skills/{name}/SKILL.md  (내장 6종)
+          2. skills/hack-skills/{name}/SKILL.md  (102종)
+          3. skills/local_skills/{name}/SKILL.md  (5종)
+          4. hack-skills 부분 이름 매칭
+          5. skills_data DB 모듈명 매칭 (235종 — Exploitation, Recon, …)
+          6. skills_data DB 태그/이름 부분 매칭
         """
         from pathlib import Path
         skills_dir = Path(__file__).parent.parent / "skills"
         loaded = []
         contents = []
 
+        # ── skills_data 통합 로드 (lazy, 한 번만) ─────────────────
+        try:
+            from ..skills.skills_data import SKILLS_DB
+            from ..skills.skills_data2 import SKILLS_DB_2
+            from ..skills.skills_data3 import SKILLS_DB_3
+            _all_db: dict = {**SKILLS_DB, **SKILLS_DB_2, **SKILLS_DB_3}
+        except Exception:
+            _all_db = {}
+
         for name in skill_names:
             name_clean = name.strip()
             name_lower = name_clean.lower()
-            # 검색 경로 우선순위
+
+            # ── 1~3: SKILL.md 파일 검색 ───────────────────────────
             candidates = [
                 skills_dir / name_lower / "SKILL.md",
                 skills_dir / "hack-skills" / name_lower / "SKILL.md",
@@ -2182,27 +2226,69 @@ class BingoTerminal:
                 skills_dir / "local_skills" / name_lower / "SKILL.md",
                 skills_dir / "local_skills" / name_clean / "SKILL.md",
             ]
-            found = None
+            found_file = None
             for p in candidates:
                 if p.exists():
-                    found = p
+                    found_file = p
                     break
-            if found:
-                content = found.read_text(encoding="utf-8")
-                contents.append(f"=== SKILL: {name_clean.upper()} ===\n{content}\n=== END SKILL: {name_clean.upper()} ===")
+
+            if found_file:
+                content = found_file.read_text(encoding="utf-8")
+                contents.append(
+                    f"=== SKILL: {name_clean.upper()} ===\n{content}\n=== END SKILL: {name_clean.upper()} ==="
+                )
                 loaded.append(name_clean)
-            else:
-                # 부분 매칭: hack-skills 아래 이름에 name_lower 포함하는 것 찾기
-                hs_dir = skills_dir / "hack-skills"
-                if hs_dir.exists():
-                    for d in hs_dir.iterdir():
-                        if d.is_dir() and (name_lower in d.name.lower() or d.name.lower() in name_lower):
-                            sf = d / "SKILL.md"
-                            if sf.exists():
-                                content = sf.read_text(encoding="utf-8")
-                                contents.append(f"=== SKILL: {d.name.upper()} ===\n{content}\n=== END SKILL: {d.name.upper()} ===")
-                                loaded.append(d.name)
-                                break
+                continue
+
+            # ── 4: hack-skills 부분 이름 매칭 ─────────────────────
+            hs_dir = skills_dir / "hack-skills"
+            hs_match = None
+            if hs_dir.exists():
+                for d in sorted(hs_dir.iterdir()):
+                    if d.is_dir() and (name_lower in d.name.lower() or d.name.lower() in name_lower):
+                        sf = d / "SKILL.md"
+                        if sf.exists():
+                            hs_match = sf
+                            break
+            if hs_match:
+                content = hs_match.read_text(encoding="utf-8")
+                label = hs_match.parent.name.upper()
+                contents.append(f"=== SKILL: {label} ===\n{content}\n=== END SKILL: {label} ===")
+                loaded.append(hs_match.parent.name)
+                continue
+
+            # ── 5: skills_data DB 모듈명 매칭 ─────────────────────
+            if _all_db:
+                mod_matches = [
+                    (sid, sk) for sid, sk in _all_db.items()
+                    if sk.get("module", "").lower() == name_lower
+                    or sk.get("module", "").lower().replace(" ", "") == name_lower.replace(" ", "")
+                    or name_lower in sk.get("module", "").lower()
+                ]
+                if mod_matches:
+                    mod_name = mod_matches[0][1].get("module", name_clean)
+                    block = [f"=== SKILL MODULE: {mod_name.upper()} ({len(mod_matches)} skills) ==="]
+                    for sid, sk in mod_matches:
+                        block.append(self._format_db_skill(sid, sk))
+                    block.append(f"=== END SKILL MODULE: {mod_name.upper()} ===")
+                    contents.append("\n\n".join(block))
+                    loaded.append(f"{mod_name}({len(mod_matches)})")
+                    continue
+
+                # ── 6: 태그/이름 부분 매칭 (최대 5개) ───────────────
+                tag_matches = [
+                    (sid, sk) for sid, sk in _all_db.items()
+                    if name_lower in sk.get("name", "").lower()
+                    or any(name_lower in t for t in sk.get("tags", []))
+                ]
+                if tag_matches:
+                    block = [f"=== SKILL SEARCH: {name_clean.upper()} ({len(tag_matches[:5])} matches) ==="]
+                    for sid, sk in tag_matches[:5]:
+                        block.append(self._format_db_skill(sid, sk))
+                    block.append(f"=== END SKILL SEARCH: {name_clean.upper()} ===")
+                    contents.append("\n\n".join(block))
+                    loaded.append(f"{name_clean}(db-match)")
+                    continue
 
         if loaded:
             self.console.print(
@@ -2870,6 +2956,31 @@ class BingoTerminal:
                 table.add_row(mod["id"], mod["en"], str(len(mod["skills"])))
             self.console.print(table)
             self.console.print(f"[{THEME['dim']}]{self.s['skill_search_hint']}[/]")
+
+            # ── skills_data DB 모듈 목록 ───────────────────────────
+            try:
+                from ..skills.skills_data import SKILLS_DB
+                from ..skills.skills_data2 import SKILLS_DB_2
+                from ..skills.skills_data3 import SKILLS_DB_3
+                _all_db = {**SKILLS_DB, **SKILLS_DB_2, **SKILLS_DB_3}
+                from collections import Counter
+                mod_counts: Counter = Counter()
+                for sk in _all_db.values():
+                    mod_counts[sk.get("module", "Unknown")] += 1
+                db_table = Table(
+                    title=f"[{THEME['primary']}]📚 내장 DB 모듈 — {len(_all_db)}개 스킬 (SKILL_LOAD: <모듈명>)[/]",
+                    border_style=THEME["primary"],
+                )
+                db_table.add_column("모듈명 (SKILL_LOAD 이름)", style=THEME["secondary"], width=32)
+                db_table.add_column("스킬 수", justify="right", style=THEME["dim"], width=8)
+                for mod_name, cnt in sorted(mod_counts.items()):
+                    db_table.add_row(mod_name, str(cnt))
+                self.console.print(db_table)
+                self.console.print(
+                    f"[{THEME['dim']}]  예) SKILL_LOAD: Exploitation  →  9개 Exploitation 스킬 전체 주입[/]\n"
+                )
+            except Exception:
+                pass
 
     # ── 유틸 ──────────────────────────────────────────────────────
     def _init_session(self) -> None:

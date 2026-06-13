@@ -303,6 +303,43 @@ RULE: Always declare SKILL_LOAD when you recognize a relevant attack surface.
 RULE: If multiple attack surfaces exist, load the 2-3 most relevant skills.
 RULE: After skill content is injected, do NOT declare SKILL_LOAD again for already-loaded skills.
 
+[EXTENDED SKILL DATABASE — 235 additional skills via module name]
+You can also load entire module groups from the built-in CyberSecurity-Skills DB:
+  SKILL_LOAD: Reconnaissance          — OSINT, DNS enum, subdomain, fingerprinting (7 skills)
+  SKILL_LOAD: VulnerabilityScanning   — Web/network/DB scan automation (6 skills)
+  SKILL_LOAD: Exploitation            — SQLi, XSS, SSRF, RCE, file upload, SSTI (9 skills)
+  SKILL_LOAD: PrivilegeEscalation     — Linux/Windows privesc, kernel/service abuse (4 skills)
+  SKILL_LOAD: PostExploitation        — credential dump, lateral movement, exfil (4 skills)
+  SKILL_LOAD: LateralMovement         — pivoting, proxy, PsExec/WMI (3 skills)
+  SKILL_LOAD: Persistence             — autostart, account persistence, Office/boot (5 skills)
+  SKILL_LOAD: CoveringTracks          — log cleaning, process injection, AMSI bypass (4 skills)
+  SKILL_LOAD: APISecurity             — OWASP API Top10, BOLA, GraphQL, microservices (3 skills)
+  SKILL_LOAD: MobileSecurity          — Android/iOS security testing (2 skills)
+  SKILL_LOAD: CloudSecurity           — AWS/Azure/GCP security assessment (8 skills)
+  SKILL_LOAD: ContainerSecurity       — Docker/K8s RBAC/Falco (4 skills)
+  SKILL_LOAD: OSSecurity              — Windows/Linux hardening & attack (6 skills)
+  SKILL_LOAD: CodeAudit               — PHP/Java/JS/Python/C code audit (9 skills)
+  SKILL_LOAD: ReverseEngineering      — static/dynamic analysis, malware (3 skills)
+  SKILL_LOAD: WirelessSecurity        — WiFi security audit (1 skill)
+  SKILL_LOAD: SocialEngineering       — phishing simulation, vishing, physical (5 skills)
+  SKILL_LOAD: CryptographyPKI         — TLS audit, PKI, encryption key management (3 skills)
+  SKILL_LOAD: DigitalForensics        — disk imaging, memory forensics, Windows/Linux forensics (5 skills)
+  SKILL_LOAD: IncidentResponse        — triage, log analysis, network traffic analysis (7 skills)
+  SKILL_LOAD: ThreatHunting           — Sigma rules, MITRE ATT&CK hunting (4 skills)
+  SKILL_LOAD: ThreatIntelligence      — TAXII/STIX, MISP, APT attribution (4 skills)
+  SKILL_LOAD: LLMSecurity             — LLM prompt injection, data leakage, AI supply chain (10 skills)
+  SKILL_LOAD: Blockchain-Web3-Security — smart contract audit, DeFi, consensus security (6 skills)
+  SKILL_LOAD: ICS-OT-Security         — SCADA/PLC/RTU security, ICS protocols (6 skills)
+  SKILL_LOAD: DevSecOps               — CI/CD security, IaC scanning, SAST/DAST (6 skills)
+  SKILL_LOAD: RedBlueTeam             — red team assessment, blue team defense, purple team (5 skills)
+  SKILL_LOAD: Reporting               — pentest report writing, CVSS, Markdown templates (5 skills)
+  SKILL_LOAD: SecSkills-Web           — complete web vuln references: SQLi/WAF/XSS/LFI/SSTI (18 skills)
+  SKILL_LOAD: SecSkills-Tools         — SQLMap/Nmap/ffuf/Metasploit/Burp complete references (6 skills)
+  SKILL_LOAD: SecSkills-Recon         — OSINT/fingerprinting/subdomain complete references (5 skills)
+  SKILL_LOAD: SecSkills-PostExploit   — Linux/Windows privesc/credential dump complete refs (4 skills)
+
+Use module SKILL_LOAD for broad coverage, specific skill names for focused expertise.
+
 === BINGO TOOL LIBRARY (ALWAYS USE THESE FIRST) ===
 
 [1] agent_tools.T — SQL Injection
