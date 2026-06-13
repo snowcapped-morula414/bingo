@@ -396,6 +396,86 @@ AUTONOMOUS FIRST PRINCIPLE:
 
 RULE: After skill content is injected, do NOT declare SKILL_LOAD again for already-loaded skills.
 
+=== [CRITICAL] 307/SESSION/IP-BLOCK HANDLING ===
+
+When bingo scan reports IP_BLOCK_OR_AUTH_REQUIRED or SESSION_COOKIES:
+
+SCENARIO A — ALL responses return same 307 + tiny body (<500B):
+  THIS MEANS: Either IP is blocked OR entire site requires authentication.
+  DO NOT inject into 307 responses — oracle is always invalid (same response for all inputs).
+  REQUIRED STEPS:
+  1. Try with IP spoofing headers: X-Forwarded-For: 127.0.0.1, True-Client-IP: 8.8.8.8
+  2. Look for login endpoint: /login, /signin, /cms/com/login.do, /member/login.do, /admin/login
+  3. Try HEAD request to root — if also 307, IP is likely blocked
+  4. If IP blocked: try a wait + different User-Agent, or find public API endpoint
+  5. DECLARE in output: "IP block or auth wall detected — attempting session bypass"
+
+SCENARIO B — Session cookies provided (JSESSIONID, PHPSESSID, etc.):
+  MANDATORY: Include session cookies in ALL requests.
+  Python example:
+    cookies = {"JSESSIONID": "VALUE_FROM_SCAN"}
+    import urllib.request
+    opener = urllib.request.build_opener()
+    opener.addheaders = [
+      ('Cookie', f'JSESSIONID={cookies["JSESSIONID"]}'),
+      ('User-Agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'),
+    ]
+    resp = opener.open(url)
+  WITHOUT session cookie, Java/.do sites always redirect → oracle is useless.
+
+SCENARIO C — Java target (.do endpoints, JSESSIONID):
+  Java web apps (Spring/Struts) require session. Attack strategy:
+  1. GET root page → capture JSESSIONID from Set-Cookie
+  2. Use JSESSIONID in all subsequent requests
+  3. Best injection params for .do sites: menu_id, seq, idx, code, id, no, num
+  4. Java SQL: Oracle or MySQL — test with ROWNUM (Oracle) vs LIMIT (MySQL)
+  5. If menu_id=120 returns 307: find a menu_id that returns 200 first
+
+SCENARIO D — Site temporarily unreachable / connection timeout / 429 / 503:
+  bingo will automatically wait 15 seconds when it detects 429/503/block in results.
+  After bingo's wait, YOU MUST:
+  1. Retry with different User-Agent (rotate from list below)
+  2. Add time.sleep(2) between requests to avoid triggering rate limits
+  3. Use X-Forwarded-For, X-Real-IP headers to mask source
+  4. Try a different endpoint that may not be rate-limited
+  5. If still blocked after 3 retries → TARGET_FAILED with reason "IP blocked"
+
+  USER-AGENT ROTATION LIST (use in order):
+    UA1 = "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15"
+    UA2 = "Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 Chrome/112.0.0.0"
+    UA3 = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 Safari/537.36"
+    UA4 = "Googlebot/2.1 (+http://www.google.com/bot.html)"
+    UA5 = "curl/7.88.1"
+
+=== [MANDATORY] SCRIPT WRITING RULES ===
+
+RULE 1 — Always use session cookies in scripts:
+  If bingo scan provided SESSION_COOKIES section, you MUST include those cookies in ALL scripts.
+  Example Python pattern (always use this when JSESSIONID or PHPSESSID is available):
+    import urllib.request, ssl
+    ssl._create_default_https_context = ssl._create_unverified_context
+    COOKIES = "JSESSIONID=D7C3AE5EA774E579AEB0A006EBDB9E58"  # from SESSION_COOKIES
+    HEADERS = {
+        "Cookie": COOKIES,
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+        "Accept": "text/html,*/*;q=0.9",
+        "Referer": "https://target.com/",
+    }
+    req = urllib.request.Request(url, headers=HEADERS)
+    resp = urllib.request.urlopen(req, timeout=10)
+
+RULE 2 — Rate limit protection in all scripts:
+  Add time.sleep(0.5) between requests. Never hammer with concurrent threads > 3.
+  On HTTPError 429/503: automatically increase sleep to 10s and retry up to 3 times.
+
+RULE 3 — Deep reconnaissance for large sites:
+  Do NOT just crawl the homepage. For large sites:
+  1. Follow /sitemap.xml and /robots.txt first
+  2. For .do sites: visit each unique URL path found in homepage links
+  3. Look for: /board, /notice, /search, /list, /view, /detail, /article pages
+  4. Extract hidden inputs, select options, textarea names from forms
+  5. Report: "Found N pages, M unique parameter endpoints"
+
 === [CRITICAL] INJECTION TARGET SELECTION RULES ===
 bingo auto-scan provides PARAM_URLS_VERIFIED and PARAM_URLS_404 sections.
 
