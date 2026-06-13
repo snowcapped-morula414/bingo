@@ -182,9 +182,13 @@ class BingoTerminal:
         model_cfg = self.config.get_active_model_config()
         status = f"[{THEME['secondary']}]{model_cfg.display_name()}[/]" if model_cfg else f"[{THEME['warn']}]no model[/]"
         lang_label = SUPPORTED_LANGS.get(self.config.lang, self.config.lang)
+        # hack-skills 카운트
+        _hs_dir = Path(__file__).parent.parent / "skills" / "hack-skills"
+        _skill_count = sum(1 for d in _hs_dir.iterdir() if d.is_dir() and (d / "SKILL.md").exists()) if _hs_dir.exists() else 0
         self.console.print(
             f"  [{THEME['dim']}]lang:[/] {lang_label}   "
-            f"[{THEME['dim']}]model:[/] {status}\n"
+            f"[{THEME['dim']}]model:[/] {status}   "
+            f"[{THEME['dim']}]skills:[/] [{THEME['success']}]{_skill_count} ready[/]\n"
         )
 
     def _print_status_bar(self) -> None:
@@ -805,6 +809,20 @@ class BingoTerminal:
         elif name == "/skill":
             if arg.startswith("install "):
                 self._cmd_skill_install(arg[8:].strip())
+            elif arg.startswith("load "):
+                # '/skill load <name>' — hack-skills는 이미 내장, 별도 설치 불필요
+                skill_name = arg[5:].strip()
+                content = self._load_skill_content([skill_name])
+                if content:
+                    self.console.print(
+                        f"[{THEME['success']}]⚡ '{skill_name}' 스킬이 이미 내장되어 있습니다. "
+                        f"AI가 자동으로 사용합니다.[/]"
+                    )
+                else:
+                    self.console.print(
+                        f"[{THEME['warn']}]스킬 '{skill_name}'을 찾을 수 없습니다. "
+                        f"/skill <키워드> 로 검색해보세요.[/]"
+                    )
             else:
                 self._cmd_skill(arg)
         elif name == "/tools":
@@ -2645,45 +2663,182 @@ class BingoTerminal:
         for sk in installed:
             self.console.print(f"  [{THEME['secondary']}]{sk['name']}[/] — {sk['ref_count']}개 레퍼런스")
 
+    def _list_hack_skills(self) -> list[dict]:
+        """hack-skills 디렉토리 스캔 → 사용 가능한 스킬 목록 반환."""
+        hs_dir = Path(__file__).parent.parent / "skills" / "hack-skills"
+        skills = []
+        if hs_dir.exists():
+            for d in sorted(hs_dir.iterdir()):
+                if d.is_dir() and (d / "SKILL.md").exists():
+                    lines = len((d / "SKILL.md").read_text(encoding="utf-8").splitlines())
+                    skills.append({"name": d.name, "lines": lines})
+        return skills
+
     def _cmd_skill(self, keyword: str = "") -> None:
         from ..skills.engine import SkillEngine
         engine = SkillEngine()
 
+        hack_skills = self._list_hack_skills()
+
         if keyword:
-            # ── 로컬 SecSkills references 검색 (우선) ─────────────────
+            # ── hack-skills 키워드 검색 ───────────────────────────────
+            kw = keyword.lower()
+            hs_matches = [s for s in hack_skills if kw in s["name"].lower()]
+            if hs_matches:
+                self.console.print(
+                    f"\n[{THEME['success']}]⚡ hack-skills 매칭 ({len(hs_matches)}개) — AI가 자동 로드:[/]"
+                )
+                for s in hs_matches[:15]:
+                    self.console.print(
+                        f"  [{THEME['secondary']}]{s['name']}[/]  [{THEME['dim']}]{s['lines']} lines[/]"
+                    )
+                self.console.print(
+                    f"\n  [{THEME['dim']}]AI가 공격 상황에 맞게 자동 선택합니다. 수동 설치 불필요.[/]"
+                )
+
+            # ── 로컬 SecSkills references 검색 ────────────────────────
             local_results = engine.local_skill_search(keyword)
             if local_results:
                 self.console.print(
-                    f"\n[{THEME['secondary']}]🔍 SecSkills 레퍼런스 매칭: [bold]{keyword}[/bold][/]"
+                    f"\n[{THEME['secondary']}]🔍 SecSkills 레퍼런스: [bold]{keyword}[/bold][/]"
                 )
                 ref_table = Table(border_style=THEME["primary"], show_header=True)
                 ref_table.add_column("스킬 팩", style=THEME["secondary"], width=20)
-                ref_table.add_column("레퍼런스 파일", style="white", width=30)
+                ref_table.add_column("레퍼런스", style="white", width=30)
                 ref_table.add_column("키워드", style=THEME["dim"])
-                for r in local_results[:10]:
+                for r in local_results[:8]:
                     ref_table.add_row(
                         r["skill_dir"],
                         r["reference"] or "SKILL.md",
                         ", ".join(r["matched_keywords"][:3]),
                     )
                 self.console.print(ref_table)
-                self.console.print(
-                    f"[{THEME['dim']}]{self.s.get('skill_ctx_injected', '💡 Reference auto-injected into AI context.')}[/]"
-                )
 
-            # ── 내장 DB 검색 (보조) ────────────────────────────────────
-            results = engine.search(keyword)
-            if results:
-                self.console.print(f"\n[{THEME['dim']}]📚 {self.s.get('skill_db_label', 'Built-in DB skills')}:[/]")
-                for r in results[:10]:
-                    self.console.print(f"  [{THEME['primary']}]{r['module']}[/] → {r['skill']}")
-
-            if not local_results and not results:
-                self.console.print(
-                    f"[{THEME['dim']}]{self.s['skill_no_result'].format(kw=keyword)}[/]"
-                )
+            if not hs_matches and not local_results:
+                # ── 내장 DB 검색 (마지막 수단) ─────────────────────────
+                results = engine.search(keyword)
+                if results:
+                    for r in results[:8]:
+                        self.console.print(f"  [{THEME['primary']}]{r['module']}[/] → {r['skill']}")
+                else:
+                    self.console.print(
+                        f"[{THEME['dim']}]{self.s['skill_no_result'].format(kw=keyword)}[/]"
+                    )
         else:
-            # ── 로컬 스킬 팩 목록 ──────────────────────────────────────
+            # ── hack-skills 전체 목록 표시 ─────────────────────────────
+            if hack_skills:
+                hs_table = Table(
+                    title=f"[{THEME['success']}]⚡ hack-skills — {len(hack_skills)}개 자동 활성화됨 (설치 불필요)[/]",
+                    border_style=THEME["success"],
+                    show_header=True,
+                )
+                hs_table.add_column("스킬명 (SKILL_LOAD 이름)", style=THEME["secondary"], width=42)
+                hs_table.add_column("Lines", justify="right", style=THEME["dim"], width=7)
+                # 카테고리 구분선과 함께 출력
+                cat_map = {
+                    "injection": "🔴 Web Injection",
+                    "sqli": "🔴 Web Injection",
+                    "xss": "🔴 Web Injection",
+                    "ssti": "🔴 Web Injection",
+                    "cmdi": "🔴 Web Injection",
+                    "nosql": "🔴 Web Injection",
+                    "xxe": "🔴 Web Injection",
+                    "expression": "🔴 Web Injection",
+                    "jndi": "🔴 Web Injection",
+                    "crlf": "🔴 Web Injection",
+                    "xslt": "🔴 Web Injection",
+                    "csv": "🔴 Web Injection",
+                    "email": "🔴 Web Injection",
+                    "http-parameter": "🔴 Web Injection",
+                    "type-juggling": "🔴 Web Injection",
+                    "ssrf": "🟠 Server-Side",
+                    "deserializ": "🟠 Server-Side",
+                    "request-smuggling": "🟠 Server-Side",
+                    "http2": "🟠 Server-Side",
+                    "http-host": "🟠 Server-Side",
+                    "web-cache": "🟠 Server-Side",
+                    "dns-rebin": "🟠 Server-Side",
+                    "dangling": "🟠 Server-Side",
+                    "arbitrary": "🟠 Server-Side",
+                    "csrf": "🟡 Client-Side",
+                    "cors": "🟡 Client-Side",
+                    "clickjack": "🟡 Client-Side",
+                    "open-redirect": "🟡 Client-Side",
+                    "csp": "🟡 Client-Side",
+                    "prototype": "🟡 Client-Side",
+                    "authbypass": "🔵 Auth/Authz",
+                    "idor": "🔵 Auth/Authz",
+                    "jwt": "🔵 Auth/Authz",
+                    "oauth": "🔵 Auth/Authz",
+                    "saml": "🔵 Auth/Authz",
+                    "401": "🔵 Auth/Authz",
+                    "auth-sec": "🔵 Auth/Authz",
+                    "upload": "🟣 File/Upload",
+                    "path-traversal": "🟣 File/Upload",
+                    "file-access": "🟣 File/Upload",
+                    "insecure-source": "🟣 File/Upload",
+                    "api": "⚪ API",
+                    "graphql": "⚪ API",
+                    "business": "⚫ Logic",
+                    "race": "⚫ Logic",
+                    "hack": "🌐 Recon",
+                    "recon": "🌐 Recon",
+                    "subdomain": "🌐 Recon",
+                    "waf": "🌐 Recon",
+                    "linux-priv": "🟤 PrivEsc",
+                    "windows-priv": "🟤 PrivEsc",
+                    "linux-security": "🟤 PrivEsc",
+                    "linux-lateral": "🟤 PrivEsc",
+                    "windows-av": "🟤 PrivEsc",
+                    "windows-lateral": "🟤 PrivEsc",
+                    "reverse-shell": "🟤 PrivEsc",
+                    "tunneling": "🟤 PrivEsc",
+                    "container": "🏗️ Infra",
+                    "kubernetes": "🏗️ Infra",
+                    "network-protocol": "🏗️ Infra",
+                    "ntlm": "🏗️ Infra",
+                    "unauthorized": "🏗️ Infra",
+                    "active-directory": "🏛️ Active Directory",
+                    "android": "📱 Mobile",
+                    "ios": "📱 Mobile",
+                    "mobile": "📱 Mobile",
+                    "hash": "🔐 Crypto",
+                    "rsa": "🔐 Crypto",
+                    "classical": "🔐 Crypto",
+                    "symmetric": "🔐 Crypto",
+                    "lattice": "🔐 Crypto",
+                    "binary": "💀 Binary/Exploit",
+                    "format-string": "💀 Binary/Exploit",
+                    "stack-overflow": "💀 Binary/Exploit",
+                    "heap": "💀 Binary/Exploit",
+                    "kernel": "💀 Binary/Exploit",
+                    "browser-exploit": "💀 Binary/Exploit",
+                    "sandbox": "💀 Binary/Exploit",
+                    "anti-debug": "💀 Binary/Exploit",
+                    "ghost": "🆕 Emerging",
+                    "llm": "🆕 Emerging",
+                    "ai-ml": "🆕 Emerging",
+                    "defi": "🆕 Emerging",
+                    "smart-contract": "🆕 Emerging",
+                    "dependency": "🆕 Emerging",
+                    "macos": "🆕 Emerging",
+                }
+                for s in hack_skills:
+                    cat = "🔧 Other"
+                    for prefix, c in cat_map.items():
+                        if s["name"].lower().startswith(prefix) or prefix in s["name"].lower():
+                            cat = c
+                            break
+                    hs_table.add_row(f"{s['name']}", str(s["lines"]))
+                self.console.print(hs_table)
+                self.console.print(
+                    f"[{THEME['dim']}]  💡 AI가 공격 상황에 맞게 자동 선택합니다. 수동 설치/활성화 불필요.[/]"
+                )
+                self.console.print(
+                    f"[{THEME['dim']}]  💡 /skill <키워드>  — 특정 스킬 검색[/]\n"
+                )
+
+            # ── 로컬 SecSkills 팩 목록 ──────────────────────────────────
             local_skills = engine.list_local_skills()
             if local_skills:
                 ls_table = Table(
