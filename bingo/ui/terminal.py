@@ -369,19 +369,45 @@ class BingoTerminal:
                 "Accept-Language": "en-US,en;q=0.9",
             }
 
-            # ── 1. 홈페이지 수집 ─────────────────────────────────────
+            # ── 1. 원본 URL 요청 ─────────────────────────────────────
             resp = _hx.get(url, headers=_hdrs, follow_redirects=True, timeout=12, verify=False)
             page = resp.text
-            base_domain = urlparse(resp.url).scheme + "://" + urlparse(resp.url).netloc
+            orig_status = resp.status_code
+            parsed_url = urlparse(resp.url)
+            base_domain = parsed_url.scheme + "://" + parsed_url.netloc
+
+            # 404 감지 시 루트로 폴백 + 원래 파라미터 분석 정보 보존
+            root_url = base_domain + "/"
+            orig_param_info = ""
+            if orig_status == 404 and url != root_url:
+                from urllib.parse import parse_qs, urlparse as _up
+                _p = _up(url)
+                _params = parse_qs(_p.query)
+                orig_param_info = (
+                    f"[TARGET NOTE] Original URL {url} returned 404.\n"
+                    f"Parameters found: {dict(_params)}\n"
+                    f"Root URL {root_url} will be used for full site analysis.\n"
+                    f"IMPORTANT: Test parameters from original URL on pages that return 200."
+                )
+                self.console.print(
+                    f"[{THEME['warn']}]  ⚠ {url} → 404. 루트 사이트로 분석 전환: {root_url}[/]"
+                )
+                resp = _hx.get(root_url, headers=_hdrs, follow_redirects=True, timeout=12, verify=False)
+                page = resp.text
+                parsed_url = urlparse(resp.url)
+                base_domain = parsed_url.scheme + "://" + parsed_url.netloc
 
             # 헤더 전체
             all_headers = dict(resp.headers)
             results.append(
                 f"=== HTTP_RESPONSE ===\n"
                 f"url: {resp.url}\n"
+                f"original_url: {url}\n"
+                f"original_status: {orig_status}\n"
                 f"status: {resp.status_code}\n"
                 f"headers: {all_headers}\n"
                 f"content_length: {len(page)}"
+                + (f"\n{orig_param_info}" if orig_param_info else "")
             )
 
             # ── 2. 기술 스택 힌트 (헤더 기반) ───────────────────────
@@ -420,18 +446,38 @@ class BingoTerminal:
                 all_links.append(full)
             all_links = list(dict.fromkeys(all_links))[:40]
 
-            param_links = [l for l in all_links if "?" in l and "=" in l]
+            param_links_raw = [l for l in all_links if "?" in l and "=" in l]
             no_param_links = [l for l in all_links if "?" not in l]
+
+            # ── 파라미터 URL 상태코드 검증 (404는 제외, AI가 존재하는 페이지만 공격) ──
+            param_links_verified: list[tuple[str, int]] = []
+            param_links_404: list[str] = []
+            for pl in param_links_raw[:15]:
+                try:
+                    _vr = _hx.get(pl, headers=_hdrs, follow_redirects=True, timeout=5, verify=False)
+                    if _vr.status_code == 404:
+                        param_links_404.append(pl)
+                    else:
+                        param_links_verified.append((pl, _vr.status_code))
+                except Exception:
+                    pass
 
             results.append(
                 f"=== ALL_LINKS ({len(all_links)} total) ===\n"
                 + "\n".join(f"  {l}" for l in all_links[:30])
             )
-            if param_links:
+            if param_links_verified:
                 results.append(
-                    f"=== PARAM_URLS ({len(param_links)}) ===\n"
-                    + "\n".join(f"  {l}" for l in param_links)
+                    f"=== PARAM_URLS_VERIFIED ({len(param_links_verified)}) — 200 OK only, ready to attack ===\n"
+                    + "\n".join(f"  [{status}] {l}" for l, status in param_links_verified)
                 )
+            if param_links_404:
+                results.append(
+                    f"=== PARAM_URLS_404 ({len(param_links_404)}) — DO NOT ATTACK, these return 404 ===\n"
+                    + "\n".join(f"  {l}" for l in param_links_404)
+                )
+            # 하위 호환용 (AI 코드에서 param_links 참조 시 사용)
+            param_links = [l for l, _ in param_links_verified]
 
             # ── 4. HTML 폼 전체 수집 ─────────────────────────────────
             forms_raw = _re.findall(
