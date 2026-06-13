@@ -2145,19 +2145,46 @@ class BingoTerminal:
 
     # ── 스킬 시스템 (에이전트 자율 판단) ─────────────────────────
     def _load_skill_content(self, skill_names: list[str]) -> str:
-        """지정된 스킬 파일을 읽어 내용 반환."""
+        """지정된 스킬 파일을 읽어 내용 반환.
+        검색 순서: skills/{name}/ → skills/hack-skills/{name}/ → skills/local_skills/{name}/
+        """
         from pathlib import Path
         skills_dir = Path(__file__).parent.parent / "skills"
         loaded = []
         contents = []
 
         for name in skill_names:
-            name = name.strip().lower()
-            skill_file = skills_dir / name / "SKILL.md"
-            if skill_file.exists():
-                content = skill_file.read_text(encoding="utf-8")
-                contents.append(f"=== SKILL: {name.upper()} ===\n{content}\n=== END SKILL: {name.upper()} ===")
-                loaded.append(name)
+            name_clean = name.strip()
+            name_lower = name_clean.lower()
+            # 검색 경로 우선순위
+            candidates = [
+                skills_dir / name_lower / "SKILL.md",
+                skills_dir / "hack-skills" / name_lower / "SKILL.md",
+                skills_dir / "hack-skills" / name_clean / "SKILL.md",
+                skills_dir / "local_skills" / name_lower / "SKILL.md",
+                skills_dir / "local_skills" / name_clean / "SKILL.md",
+            ]
+            found = None
+            for p in candidates:
+                if p.exists():
+                    found = p
+                    break
+            if found:
+                content = found.read_text(encoding="utf-8")
+                contents.append(f"=== SKILL: {name_clean.upper()} ===\n{content}\n=== END SKILL: {name_clean.upper()} ===")
+                loaded.append(name_clean)
+            else:
+                # 부분 매칭: hack-skills 아래 이름에 name_lower 포함하는 것 찾기
+                hs_dir = skills_dir / "hack-skills"
+                if hs_dir.exists():
+                    for d in hs_dir.iterdir():
+                        if d.is_dir() and (name_lower in d.name.lower() or d.name.lower() in name_lower):
+                            sf = d / "SKILL.md"
+                            if sf.exists():
+                                content = sf.read_text(encoding="utf-8")
+                                contents.append(f"=== SKILL: {d.name.upper()} ===\n{content}\n=== END SKILL: {d.name.upper()} ===")
+                                loaded.append(d.name)
+                                break
 
         if loaded:
             self.console.print(

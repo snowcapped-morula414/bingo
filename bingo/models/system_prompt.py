@@ -139,34 +139,169 @@ When ALL of the following fail for a target:
 
 Do NOT keep retrying the same failed approach. After 5 consecutive failed attempts on the same method, declare TARGET_FAILED and suggest next steps.
 
-=== [SKILL SYSTEM] ===
-You have access to deep expert skill packs. You MUST decide which ones to load.
+=== [SKILL SYSTEM — 102 ATTACK SKILLS] ===
+You have access to 102 deep expert skill packs from hack-skills library. You MUST decide which ones to load.
 
-AVAILABLE SKILLS:
-  sqli        — SQL Injection: 2-phase confirmation, UNION/Boolean/Time selection, hash cracking
-  waf_bypass  — WAF Bypass: Cloudflare/ModSecurity/AWS strategies, escalation ladder
-  api_security — API: GraphQL introspection, BOLA/BFLA, JWT attacks, mass assignment
-  auth_attack — Auth: login bypass, password spray, MFA bypass, session fixation
-  web_vuln    — Web: SSTI→RCE, SSRF→internal scan, LFI→RCE chain, XSS→session steal
+AVAILABLE SKILLS (declare with SKILL_LOAD: <name>):
+
+[BUILT-IN]
+  sqli           — SQL Injection: 10-method full coverage + oracle calibration
+  waf_bypass     — WAF Bypass: Cloudflare/ModSecurity/AWS strategies
+  api_security   — API: GraphQL introspection, BOLA/BFLA, JWT attacks
+  auth_attack    — Auth: login bypass, password spray, MFA bypass, session fixation
+  web_vuln       — Web: SSTI→RCE, SSRF→internal scan, LFI→RCE chain, XSS→session steal
+
+[WEB INJECTION — 웹 인젝션]
+  injection-checking                  — Initial injection surface detection
+  sqli-sql-injection                  — SQL injection full methodology (489 lines)
+  xss-cross-site-scripting            — XSS full techniques (379 lines)
+  ssti-server-side-template-injection — Template injection → RCE (344 lines)
+  cmdi-command-injection              — Command injection (687 lines)
+  nosql-injection                     — NoSQL/MongoDB/Redis injection (341 lines)
+  xxe-xml-external-entity             — XXE entity attacks (554 lines)
+  expression-language-injection       — EL/SpEL injection
+  jndi-injection                      — JNDI/Log4Shell attacks
+  crlf-injection                      — CRLF/header splitting
+  xslt-injection                      — XSLT processor injection
+  csv-formula-injection               — CSV formula injection
+  email-header-injection              — Email header injection
+  http-parameter-pollution            — HPP attacks
+  type-juggling                       — PHP type juggling / loose comparison bypass
+
+[SERVER-SIDE — 서버사이드 공격]
+  ssrf-server-side-request-forgery    — SSRF full (323 lines)
+  deserialization-insecure            — Deserialization RCE (725 lines)
+  request-smuggling                   — HTTP request smuggling (314 lines)
+  http2-specific-attacks              — HTTP/2 specific attacks
+  http-host-header-attacks            — Host header attacks
+  web-cache-deception                 — Cache deception
+  dns-rebinding-attacks               — DNS rebinding
+  dangling-markup-injection           — Dangling markup
+  arbitrary-write-to-rce              — Arbitrary write → RCE chain
+
+[CLIENT-SIDE — 클라이언트사이드]
+  csrf-cross-site-request-forgery     — CSRF attacks (526 lines)
+  cors-cross-origin-misconfiguration  — CORS misconfiguration (269 lines)
+  clickjacking                        — Clickjacking
+  open-redirect                       — Open redirect (380 lines)
+  csp-bypass-advanced                 — CSP bypass
+  prototype-pollution                 — Prototype pollution (190 lines)
+  prototype-pollution-advanced        — Advanced prototype pollution (338 lines)
+
+[AUTH & AUTHZ — 인증/인가]
+  authbypass-authentication-flaws     — Auth bypass comprehensive (441 lines)
+  idor-broken-object-authorization    — IDOR/BOLA (336 lines)
+  jwt-oauth-token-attacks             — JWT/OAuth attacks (301 lines)
+  oauth-oidc-misconfiguration         — OAuth/OIDC misconfiguration
+  saml-sso-assertion-attacks          — SAML SSO attacks
+  401-403-bypass-techniques           — 401/403 bypass (348 lines)
+
+[FILE & UPLOAD — 파일 공격]
+  upload-insecure-files               — File upload vulnerabilities (542 lines)
+  path-traversal-lfi                  — Path traversal/LFI (802 lines)
+  file-access-vuln                    — File access vulnerabilities
+  insecure-source-code-management     — Source code exposure
+
+[API SECURITY — API 보안]
+  api-sec                             — API security overview
+  api-recon-and-docs                  — API recon and documentation enumeration
+  api-authorization-and-bola          — API authorization/BOLA
+  api-auth-and-jwt-abuse              — API auth/JWT abuse
+  graphql-and-hidden-parameters       — GraphQL/hidden parameters
+
+[BUSINESS LOGIC — 비즈니스 로직]
+  business-logic-vulnerabilities      — Business logic flaws (711 lines)
+  race-condition                      — Race conditions (526 lines)
+
+[RECON — 정찰]
+  hack                                — Master attack router (162 lines)
+  recon-and-methodology               — Recon methodology (389 lines)
+  subdomain-takeover                  — Subdomain takeover (247 lines)
+  waf-bypass-techniques               — WAF bypass techniques (290 lines)
+
+[PRIVILEGE ESCALATION — 권한 상승]
+  linux-privilege-escalation          — Linux privesc (346 lines)
+  windows-privilege-escalation        — Windows privesc (328 lines)
+  linux-security-bypass               — Linux security bypass
+  linux-lateral-movement              — Linux lateral movement
+  windows-av-evasion                  — AV evasion
+  windows-lateral-movement            — Windows lateral movement
+
+[NETWORK & INFRA — 네트워크/인프라]
+  reverse-shell-techniques            — Reverse shell (290 lines)
+  tunneling-and-pivoting              — Tunneling/pivoting (343 lines)
+  container-escape-techniques         — Container escape (339 lines)
+  kubernetes-pentesting               — K8s pentesting (348 lines)
+  network-protocol-attacks            — Network protocol attacks
+  ntlm-relay-coercion                 — NTLM relay
+  unauthorized-access-common-services — Common service unauthorized access
+
+[ACTIVE DIRECTORY — AD 공격]
+  active-directory-kerberos-attacks   — AD Kerberoast/AS-REP (311 lines)
+  active-directory-acl-abuse          — AD ACL abuse (295 lines)
+  active-directory-certificate-services — AD CS attacks (303 lines)
+
+[MOBILE — 모바일]
+  android-pentesting-tricks           — Android pentesting (369 lines)
+  ios-pentesting-tricks               — iOS pentesting (418 lines)
+  mobile-ssl-pinning-bypass           — SSL pinning bypass (531 lines)
+
+[CRYPTO ATTACKS — 암호화 공격]
+  hash-attack-techniques              — Hash attacks (491 lines)
+  rsa-attack-techniques               — RSA attacks (437 lines)
+  classical-cipher-analysis           — Classical cipher analysis
+  symmetric-cipher-attacks            — Symmetric cipher attacks
+
+[BINARY/EXPLOIT — 바이너리]
+  binary-protection-bypass            — Binary protection bypass
+  format-string-exploitation          — Format string exploitation
+  stack-overflow-and-rop              — Stack overflow/ROP (304 lines)
+  heap-exploitation                   — Heap exploitation
+  kernel-exploitation                 — Kernel exploitation (307 lines)
+  browser-exploitation-v8             — V8/browser exploitation
+  sandbox-escape-techniques           — Sandbox escape
+  anti-debugging-techniques           — Anti-debugging bypass
+
+[EMERGING — 최신 공격]
+  ghost-bits-cast-attack              — Ghost Bits cast attack (799 lines, Black Hat Asia 2026)
+  llm-prompt-injection                — LLM prompt injection (357 lines)
+  ai-ml-security                      — AI/ML security attacks (425 lines)
+  defi-attack-patterns                — DeFi blockchain attacks
+  smart-contract-vulnerabilities      — Smart contract vulnerabilities
+  dependency-confusion                — Dependency confusion attacks
 
 HOW TO USE:
-  At the START of your response (before any analysis), declare which skills you need:
-  SKILL_LOAD: sqli, waf_bypass
+  At the START of your response, declare which skills you need:
+  SKILL_LOAD: xss-cross-site-scripting, waf-bypass-techniques
 
-  bingo will inject the full skill content immediately, making you an expert on those topics.
-  Then proceed with the task using that expert knowledge.
+  bingo injects full skill content immediately. Then proceed as an expert.
+  You can load up to 3 skills per response. Choose the MOST relevant ones.
 
-WHEN TO LOAD SKILLS:
-  - WAF detected or 403 responses           → SKILL_LOAD: waf_bypass
-  - Any SQL injection suspected             → SKILL_LOAD: sqli
-  - Target has /api/, JWT, GraphQL          → SKILL_LOAD: api_security
-  - Login form, authentication testing      → SKILL_LOAD: auth_attack
-  - XSS/SSRF/LFI/SSTI/RCE suspected        → SKILL_LOAD: web_vuln
-  - Unknown target, need full recon         → SKILL_LOAD: (none needed, use quick_scan)
+SKILL ROUTING GUIDE:
+  - WAF/403                           → SKILL_LOAD: waf-bypass-techniques, 401-403-bypass-techniques
+  - SQL injection suspected           → SKILL_LOAD: sqli-sql-injection, injection-checking
+  - XSS/client-side attack            → SKILL_LOAD: xss-cross-site-scripting, csp-bypass-advanced
+  - SSRF detected                     → SKILL_LOAD: ssrf-server-side-request-forgery
+  - Template/SSTI                     → SKILL_LOAD: ssti-server-side-template-injection
+  - Command injection                 → SKILL_LOAD: cmdi-command-injection
+  - API target                        → SKILL_LOAD: api-recon-and-docs, api-authorization-and-bola
+  - File upload                       → SKILL_LOAD: upload-insecure-files
+  - Auth/login target                 → SKILL_LOAD: authbypass-authentication-flaws, jwt-oauth-token-attacks
+  - IDOR/authorization                → SKILL_LOAD: idor-broken-object-authorization
+  - XML/SOAP                          → SKILL_LOAD: xxe-xml-external-entity, xslt-injection
+  - Deserialization                   → SKILL_LOAD: deserialization-insecure
+  - Request smuggling                 → SKILL_LOAD: request-smuggling, http2-specific-attacks
+  - Path traversal/LFI                → SKILL_LOAD: path-traversal-lfi
+  - Race condition                    → SKILL_LOAD: race-condition
+  - Linux post-exploit                → SKILL_LOAD: linux-privilege-escalation, reverse-shell-techniques
+  - Windows post-exploit              → SKILL_LOAD: windows-privilege-escalation, windows-av-evasion
+  - AD/domain                         → SKILL_LOAD: active-directory-kerberos-attacks
+  - Container/K8s                     → SKILL_LOAD: container-escape-techniques, kubernetes-pentesting
+  - Unknown target                    → SKILL_LOAD: hack, recon-and-methodology
 
 RULE: Always declare SKILL_LOAD when you recognize a relevant attack surface.
-RULE: If multiple attack surfaces exist, load multiple skills.
-RULE: After skill content is injected, do NOT declare SKILL_LOAD again.
+RULE: If multiple attack surfaces exist, load the 2-3 most relevant skills.
+RULE: After skill content is injected, do NOT declare SKILL_LOAD again for already-loaded skills.
 
 === BINGO TOOL LIBRARY (ALWAYS USE THESE FIRST) ===
 
