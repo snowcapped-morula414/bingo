@@ -508,6 +508,19 @@ _STRINGS.update({
     "skill_db_load_example":{"ko": "예) SKILL_LOAD: Exploitation  →  9개 Exploitation 스킬 전체 주입",
                              "zh": "例) SKILL_LOAD: Exploitation  →  注入全部 9 个 Exploitation 技能",
                              "en": "e.g. SKILL_LOAD: Exploitation  →  injects all 9 Exploitation skills"},
+    # ── 네트워크 / VPN ──────────────────────────────────────────
+    "vpn_on_banner":         {"ko": "🔒 VPN ON  출구IP: {ip}  {country}  (로컬: {local})",
+                              "zh": "🔒 VPN 已连接  出口IP: {ip}  {country}  (本地: {local})",
+                              "en": "🔒 VPN ON  Exit IP: {ip}  {country}  (local: {local})"},
+    "vpn_off_banner":        {"ko": "🌐 공개IP: {ip}  {country}",
+                              "zh": "🌐 公网IP: {ip}  {country}",
+                              "en": "🌐 Public IP: {ip}  {country}"},
+    "vpn_detected_scan":     {"ko": "🔒 VPN 감지: 출구 IP [{ip}] ({country})",
+                              "zh": "🔒 检测到VPN: 出口IP [{ip}] ({country})",
+                              "en": "🔒 VPN detected: Exit IP [{ip}] ({country})"},
+    "vpn_ip_blocked":        {"ko": "⛔ 출구 IP 차단됨 — VPN 서버 변경 후 재시도 권장",
+                              "zh": "⛔ 出口IP已被封锁 — 建议更换VPN服务器后重试",
+                              "en": "⛔ Exit IP blocked — switch VPN server and retry"},
 })
 
 

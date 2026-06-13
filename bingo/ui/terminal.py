@@ -245,17 +245,11 @@ class BingoTerminal:
         country = env.get("country", "")
 
         if vpn:
-            return (
-                f"[{THEME['warn']}]🔒 VPN ON[/]  "
-                f"[{THEME['dim']}]출구IP:[/] [{THEME['success']}]{pub}[/]  "
-                f"[{THEME['dim']}]{country}[/]  "
-                f"[{THEME['muted']}](local: {local})[/]"
-            )
+            _txt = self.s.get("vpn_on_banner", "🔒 VPN ON  Exit IP: {ip}  {country}  (local: {local})")
+            return f"[{THEME['warn']}]{_txt.format(ip=pub, country=country, local=local)}[/]"
         elif pub:
-            return (
-                f"[{THEME['muted']}]🌐 IP:[/] [{THEME['success']}]{pub}[/]  "
-                f"[{THEME['dim']}]{country}[/]"
-            )
+            _txt = self.s.get("vpn_off_banner", "🌐 Public IP: {ip}  {country}")
+            return f"[{THEME['muted']}]{_txt.format(ip=pub, country=country)}[/]"
         return ""
 
     # ── 공개 진입점 ───────────────────────────────────────────────
@@ -518,7 +512,7 @@ class BingoTerminal:
                 f"  NOTE: Target blocks by exit IP, not local IP"
             )
             self.console.print(
-                f"\n[{THEME['warn']}]  🔒 VPN 감지: 출구 IP [{_pub_ip}] ({_country})[/]"
+                f"\n[{THEME['warn']}]  {self.s.get('vpn_detected_scan', '🔒 VPN detected: Exit IP [{ip}] ({country})').format(ip=_pub_ip, country=_country)}[/]"
             )
         elif _pub_ip:
             _net_note = (
