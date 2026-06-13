@@ -161,11 +161,19 @@ echo -e "${DIM}  Enables recon on JavaScript-heavy / SPA sites${RESET}"
 echo -e "${DIM}  Requires ~150MB Chromium download${RESET}"
 echo -e "${CYAN}  ══════════════════════════════════════${RESET}"
 echo ""
-read -r -p "  Install Playwright? [y/N] " _pw_answer
+read -r -p "  Install Playwright? [y/N] " _pw_answer || true
 if [[ "${_pw_answer,,}" == "y" ]]; then
     step "Installing Playwright"
-    python3 -m pip install playwright -q && ok "playwright package installed" || warn "playwright pip install failed"
-    python3 -m playwright install chromium && ok "Chromium browser installed" || warn "chromium install failed"
+    if python3 -m pip install playwright -q; then
+        ok "playwright package installed"
+    else
+        warn "playwright pip install failed"
+    fi
+    if python3 -m playwright install chromium; then
+        ok "Chromium browser installed"
+    else
+        warn "chromium install failed"
+    fi
 else
     info "Skipped. Bingo will auto-install Playwright when needed."
     info "Or install manually: pip install playwright && playwright install chromium"
