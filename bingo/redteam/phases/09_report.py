@@ -247,6 +247,26 @@ def _get_recommendation(vuln_type: str) -> str:
             "3. 민감 필드(is_active, role, groups)는 서버 세션 기반으로 관리\n"
             "4. 응답 변조로 인한 우회 불가능한 서버 검증 구조 설계"
         ),
+        # MSSQL 2025 AI 기능 악용 권고
+        "mssql2025_poc_generated": (
+            "1. sp_invoke_external_rest_endpoint 즉시 비활성화:\n"
+            "   EXEC sp_configure 'external rest endpoint enabled', 0; RECONFIGURE;\n"
+            "2. 외부 네트워크 연결 방화벽으로 차단 (SQL Server 아웃바운드)\n"
+            "3. 사용하지 않는 AI/ML 기능 비활성화\n"
+            "4. SQL 인젝션 패치 (Prepared Statement 사용)\n"
+            "5. DB 계정 최소 권한 원칙 적용 (sysadmin 권한 제거)"
+        ),
+        "stacked_query_confirmed": (
+            "1. SQL 인젝션 즉시 패치 (Parameterized Query)\n"
+            "2. 애플리케이션 DB 계정에서 EXECUTE 권한 제거\n"
+            "3. WAF 규칙에 Stacked Query 패턴 추가\n"
+            "4. SQL Server 감사 로그 활성화"
+        ),
+        "privilege_confirmed": (
+            "1. 애플리케이션 DB 계정 최소 권한으로 제한\n"
+            "2. sysadmin 역할은 관리 계정에만 부여\n"
+            "3. 정기적 DB 계정 권한 감사 수행"
+        ),
     }
     return recs.get(vuln_type, "해당 취약점에 맞는 보안 패치 적용")
 

@@ -151,6 +151,17 @@ BUILTIN_MODULES: list[dict] = [
          "민감 응답 키워드 자동 분류",
          "500 오류 기반 인젝션 탐지",
      ]},
+    {"id": "42", "name": "SQL Server 2025 AI特性利用", "en": "MSSQL2025AIExploit", "ko": "MSSQL2025AI기능악용",
+     "skills": [
+         "SQL Server 2025 엔진 자동 감지",
+         "버전 확인 (@@version 기반)",
+         "Stacked Query 실행 가능 여부 (WAITFOR DELAY)",
+         "sysadmin/db_owner 권한 확인",
+         "sp_invoke_external_rest_endpoint 활성화 확인",
+         "외부 서버로 테이블 데이터 전송 PoC",
+         "CREATE EXTERNAL MODEL → NTLM 해시 탈취 PoC",
+         "AI_GENERATE_EMBEDDINGS C2 채널 PoC",
+     ]},
 ]
 
 

