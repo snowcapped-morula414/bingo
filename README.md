@@ -327,6 +327,45 @@ INFERRED  = port 32000 open + Aruba banner, but XXE not confirmed
 
 ---
 
+### OAuth Misconfiguration Chain Attack Detection (v2.1)
+
+> **Research basis:**  
+> [Shafayat Ahmed Alif — "Critical OAuth Misconfiguration → Account Takeover"](https://medium.com/@iamshafayat/how-i-found-a-critical-oauth-misconfiguration-that-led-to-account-takeover-abfec43eaea6)  
+> [Ali Mojaver — "The Most Dangerous OAuth Bug I've Ever Found"](https://medium.com/@AliMojaver/the-most-dangerous-oauth-bug-ive-ever-found-a2af1275385c)
+
+Two distinct OAuth attack chains auto-detected and combined into a single scanner.
+
+#### Pattern A — Open Registration Chain (Shafayat's 5-step ATO chain)
+
+| Step | Check | Severity |
+|------|-------|----------|
+| ① | `POST /oauth/register` (no auth) → HTTP 201 + `client_id` returned | High |
+| ② | `POST /oauth/authorize` (no session cookie) → HTTP 200/201 + `redirect_uri` | Critical |
+| ③ | Token exchange using PKCE only (no `client_secret`) | Medium |
+| ④ | `OPTIONS /oauth/token` → `Access-Control-Allow-Origin: *` | Medium |
+| Chain | All 4 conditions: full Authorization Code Hijacking → ATO | **Critical** |
+
+#### Pattern B — Unverified Email OAuth Trust (Ali Mojaver's email-trust chain)
+
+| Step | Check | Severity |
+|------|-------|----------|
+| ① | `POST /auth/register` with arbitrary email → immediate token returned (no verification required) | High |
+| ② | Platform serves `/.well-known/oauth-authorization-server` or shows OAuth provider patterns | Medium |
+| Chain | ① + ②: Register as `victim@gmail.com` → login as victim on ALL integrated sites | **Critical** |
+
+#### AI Auto-Trigger Conditions
+- `/.well-known/oauth-authorization-server` accessible (HTTP 200)
+- Response contains `authorization_endpoint` / `token_endpoint` / `client_id=`
+- Target URL contains `/oauth/`, `/auth/`, `/connect/`
+- Homepage contains OAuth login button patterns
+
+#### Chain Risk Score
+- **Pattern A**: 0–5 points (3+ = High, 5 = Critical)
+- **Pattern B**: 0–3 points (2+ = Critical — mass ATO risk)
+- cURL PoC auto-generated for all confirmed findings
+
+---
+
 ### Ivanti Sentry Pre-Auth RCE — CVE-2026-10520 (v2.1)
 
 > **Research basis:** [watchTowr Labs — "Ivanti Sentry Pre-Auth OS Command Injection CVE-2026-10520"](https://labs.watchtowr.com/more-evidence-that-words-dont-mean-what-we-thought-they-meant-ivanti-sentry-pre-auth-os-command-injection-cve-2026-10520/)  
@@ -681,7 +720,7 @@ bingo/
 - **IDOR Phase** — real-world IDOR enumeration, PII detection, and IDOR-based password reset with login verification
 - **Full i18n** — all UI strings (skill module names, commands, evidence labels) in Korean / Chinese / English
 - **9-phase pipeline** — extended from 5 to 9 phases (webshell acquisition, IDOR, login verification added)
-- **44 skill modules** — added ClientSideAuthBypass (#40), ApiDiscoveryFuzzing (#41), MSSQL2025AIExploit (#42), ArubaOsXxeSsrf (#43), IvantiSentryRCE (#44)
+- **45 skill modules** — added ClientSideAuthBypass (#40), ApiDiscoveryFuzzing (#41), MSSQL2025AIExploit (#42), ArubaOsXxeSsrf (#43), IvantiSentryRCE (#44), OAuthChainAttack (#45)
 - Production-stable (`Development Status :: 5 - Production/Stable`)
 
 ### v2.0.x — Beta

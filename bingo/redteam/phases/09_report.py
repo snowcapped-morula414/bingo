@@ -310,6 +310,41 @@ def _get_recommendation(vuln_type: str) -> str:
             "2. CVE-2026-10520, CVE-2026-10523 영향 여부 검토\n"
             "3. 외부 인터넷에서 Sentry 관리 포트 접근 차단"
         ),
+        # OAuth Chain Attack 권고
+        "email_trust_chain": (
+            "1. 이메일 인증 없이 계정 생성 즉시 차단 — 검증 전 로그인/OAuth 토큰 발급 금지\n"
+            "2. OAuth 응답에 email_verified 필드 명시 — 소비 사이트에서 반드시 검증 필수\n"
+            "3. 기존 미검증 계정 전수 조사 및 재검증 요구\n"
+            "4. OAuth Provider 연동 사이트에 긴급 패치 알림 발송\n"
+            "5. 이메일 기반 자동 SSO 프로비저닝 중단 (수동 검토로 변경)"
+        ),
+        "open_registration": (
+            "1. Dynamic Client Registration 엔드포인트에 인증 요구 (RFC7591 IAT)\n"
+            "2. redirect_uri를 사전 등록된 목록으로만 허용 (wildcard 금지)\n"
+            "3. 등록된 클라이언트를 관리자 검토 후 활성화하는 프로세스 도입\n"
+            "4. 클라이언트 등록 이벤트 알림 및 감사 로그 유지"
+        ),
+        "auth_without_session": (
+            "1. Authorization 엔드포인트는 유효한 사용자 세션 필수 확인\n"
+            "2. 세션 없는 요청은 로그인 페이지로 리다이렉트 (302)\n"
+            "3. state 파라미터 필수 검증 (CSRF 방지)\n"
+            "4. PKCE 필수 적용 (RFC7636) — code_challenge 없는 요청 거부"
+        ),
+        "cors_wildcard": (
+            "1. OAuth 엔드포인트의 CORS: * 제거 — 허용된 오리진만 명시적 등록\n"
+            "2. token_endpoint에 SameSite=Strict 쿠키 적용\n"
+            "3. Vary: Origin 헤더 설정으로 캐시 우회 방지"
+        ),
+        "unverified_email_registration": (
+            "1. 가입 즉시 이메일 인증 링크 발송 — 검증 전 계정 비활성화 유지\n"
+            "2. 소셜 로그인 연결 시 이메일 재검증 요구\n"
+            "3. OAuth 클레임의 email_verified: true인 경우에만 자동 계정 연결 허용"
+        ),
+        "metadata_exposed": (
+            "1. 필요하지 않은 경우 /.well-known 엔드포인트 접근 제한\n"
+            "2. token_endpoint_auth_methods_supported에서 'none' 제거\n"
+            "3. registration_endpoint를 인증된 요청으로만 제한"
+        ),
     }
     return recs.get(vuln_type, "해당 취약점에 맞는 보안 패치 적용")
 

@@ -182,6 +182,17 @@ BUILTIN_MODULES: list[dict] = [
          "버전 정보 추출 시도",
          "CVSS 10.0 Critical curl PoC 자동 생성",
      ]},
+    {"id": "45", "name": "OAuth链式攻击检测 (开放注册+邮件信任)", "en": "OAuthChainAttack", "ko": "OAuth체인공격탐지",
+     "skills": [
+         "OAuth 서버 메타데이터 자동 발견 (/.well-known/oauth-authorization-server)",
+         "인증 없는 클라이언트 등록 탐지 (Open Registration)",
+         "미인증 Authorization 엔드포인트 접근 테스트",
+         "CORS wildcard 탐지 (OAuth 응답 크로스오리진 노출)",
+         "이메일 미검증 계정 생성 탐지 (Pattern B)",
+         "OAuth Provider 동작 여부 확인",
+         "이메일 신뢰 체인 완성 — 수백만 계정 탈취 가능성 검증",
+         "체인 스코어 계산 (A: 0~5, B: 0~3) + curl PoC 자동 생성",
+     ]},
 ]
 
 
