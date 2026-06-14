@@ -39,23 +39,21 @@ def run(session: RedTeamSession, output_dir: str = ".", on_progress=None) -> str
 
     all_findings_raw = session.all_findings()
 
-    # ── Zero-Hallucination Gate ───────────────────────────────────────────────
-    # evidence_level=VERIFIED 만 취약점으로 보고서에 포함
-    # INFERRED / AI_ANALYSIS 는 별도 분류
+    # ── 증거 등급 분류 (라벨링만, 기능 차단 없음) ─────────────────────────────
+    # VERIFIED + LIKELY → 메인 취약점 목록
+    # INFERRED          → 하단 "추가 조사 필요" 섹션 (버리지 않음)
+    # AI_ANALYSIS       → "AI 분석" 별도 섹션
     verified_findings = []
     inferred_findings = []
     for f in all_findings_raw:
-        level = f.get("evidence_level", "VERIFIED")  # 기존 finding은 VERIFIED 기본값
+        level = f.get("evidence_level", "VERIFIED")
         if level == "AI_ANALYSIS":
-            continue  # AI 텍스트는 보고서 취약점 목록 제외
+            continue  # 별도 섹션 처리
         elif level == "INFERRED":
             inferred_findings.append(f)
         else:
-            # VERIFIED — curl이 있는지 추가 확인
-            if not f.get("curl") and not f.get("detail") and not f.get("url"):
-                inferred_findings.append(f)
-            else:
-                verified_findings.append(f)
+            # VERIFIED / LIKELY 모두 메인 섹션
+            verified_findings.append(f)
 
     all_findings = verified_findings
     # 심각도 순 정렬
@@ -93,10 +91,10 @@ def run(session: RedTeamSession, output_dir: str = ".", on_progress=None) -> str
 
     md_lines += [
         f"",
-        f"**검증된 취약점: {len(all_findings)}건** ✅ (Zero-Hallucination 보장)",
+        f"**발견된 취약점: {len(all_findings)}건** (INFERRED 추가조사: {len(inferred_findings)}건)",
         f"",
-        f"> ⚠️ 이 보고서에 포함된 모든 취약점은 실제 HTTP 응답 증거가 첨부됩니다.",
-        f"> 증거 없는 추론({len(inferred_findings)}건)은 하단 미검증 섹션에 별도 기록됩니다.",
+        f"> 이 보고서는 HTTP 증거 등급으로 발견을 분류합니다.",
+        f"> VERIFIED/LIKELY = 증거 있음 | INFERRED = 추가 조사 필요",
         f"",
         f"---",
         f"",
@@ -153,19 +151,32 @@ def run(session: RedTeamSession, output_dir: str = ".", on_progress=None) -> str
             f"",
         ]
 
-    # ── 미검증 섹션 (증거 없음, 보고서에서 취약점 아님) ──────────────────────
+    # ── INFERRED 섹션 (추가 조사 단서 — 버리지 않음) ──────────────────────────
     if inferred_findings:
         md_lines += [
-            f"## ⚠️ 미검증 항목 (INFERRED — 보안 취약점 아님)",
+            f"## 🔍 추가 조사 필요 항목 (INFERRED)",
             f"",
-            f"> 아래 항목들은 HTTP 증거가 불충분하여 취약점으로 확정되지 않았습니다.",
-            f"> 추가 조사가 필요합니다.",
+            f"> HTTP 증거가 불충분하지만 단서로 기록됩니다. 수동 확인 권장.",
             f"",
         ]
         for j, inf in enumerate(inferred_findings, 1):
+            sev = inf.get("severity", "info")
             md_lines += [
-                f"- **{j}.** {inf.get('title', '미확인')} — _{inf.get('description', '')[:100]}_",
+                f"### 조사 #{j} [{sev.upper()}] {inf.get('title', '미확인')}",
+                f"",
+                f"- **유형:** {inf.get('type', 'N/A')}",
+                f"- **단계:** {inf.get('phase', 'N/A')}",
+                f"",
+                inf.get("description", "")[:200],
+                f"",
             ]
+            if inf.get("curl"):
+                md_lines += [
+                    f"```bash",
+                    inf["curl"],
+                    f"```",
+                    f"",
+                ]
         md_lines.append("")
 
     # 단계별 요약

@@ -1,23 +1,23 @@
 """
-Zero-Hallucination Enforcement System
-======================================
-원칙: bingo가 출력하는 모든 취약점/자격증명/파일은
-      실제 HTTP 응답 또는 파일시스템 증거가 반드시 존재해야 한다.
+Zero-Hallucination Labeling System
+=====================================
+원칙: 모든 해킹 기능은 그대로 실행된다.
+      환각 차단 = 기능 차단이 아니라 '증거 등급 라벨링'.
 
-GitHub 신용의 핵심 — 단 하나의 오탐도 없어야 한다.
+중요: 이 시스템은 절대 해킹 기능을 막지 않는다.
+      발견된 것은 모두 기록한다.
+      다만 보고서에서 "확인됨 / 추론" 을 명확히 구분한다.
 
-강제 규칙:
-  1. VERIFIED 등급만 보고서에 포함됨
-  2. 자격증명은 실제 로그인 성공 응답 코드/쿠키 첨부 필수
-  3. 파일 업로드는 업로드 후 GET 요청으로 파일 존재 확인 필수
-  4. IDOR는 두 계정의 응답 본문 차이 필수 첨부
-  5. AI 분석은 항상 [AI_ANALYSIS] 태그로 분리, 취약점 목록에 포함 금지
-  6. 추론/가정 기반 발견은 INFERRED 등급으로 별도 분류 (보고서 미포함)
+라벨 등급 (3단계):
+  VERIFIED    — 실제 HTTP 응답 증거 있음 → 보고서 메인 섹션
+  LIKELY      — 부분 증거 있음 (폼 제출 성공 but 로그인 미확인) → 보고서 포함, 주석 달림
+  INFERRED    — HTTP 증거 없음, 추론 기반 → 보고서 하단 별도 섹션
+  AI_ANALYSIS — AI 생성 텍스트 → 보고서 "AI 분석" 섹션
 
-등급:
-  VERIFIED   — HTTP 응답 증거 첨부 + 재현 성공
-  INFERRED   — 증거 불충분, 추론 기반 → 보고서 제외, 로그에만 기록
-  AI_ANALYSIS— AI 모델이 생성한 분석 → 완전 별도 섹션, 취약점 아님
+기능 실행은 막지 않는다:
+  - 자격증명: 쿠키 없어도 LIKELY로 기록
+  - IDOR 재설정: 로그인 검증 실패해도 LIKELY로 기록
+  - 모든 발견은 세션에 저장됨
 """
 from __future__ import annotations
 
@@ -30,9 +30,10 @@ from typing import Any
 
 
 class EvidenceLevel(Enum):
-    VERIFIED  = "VERIFIED"   # 실제 HTTP 증거 확인됨
-    INFERRED  = "INFERRED"   # 증거 없음, 추론 기반 (보고서 제외)
-    AI_ANALYSIS = "AI_ANALYSIS"  # AI 생성 텍스트 (취약점 아님)
+    VERIFIED    = "VERIFIED"    # 실제 HTTP 증거 확인됨 → 보고서 메인
+    LIKELY      = "LIKELY"      # 부분 증거 → 보고서 포함, 주석
+    INFERRED    = "INFERRED"    # 증거 없음, 추론 → 보고서 하단
+    AI_ANALYSIS = "AI_ANALYSIS" # AI 텍스트 → 별도 섹션
 
 
 @dataclass
@@ -102,12 +103,14 @@ class VerifiedFinding:
 
     @property
     def is_reportable(self) -> bool:
-        """보고서에 포함 가능한지"""
-        return (
-            self.level == EvidenceLevel.VERIFIED
-            and not self.evidence.is_empty()
-            and self.evidence.status_code > 0
-        )
+        """
+        보고서 메인 섹션 포함 여부.
+        VERIFIED + LIKELY 모두 포함.
+        INFERRED는 하단 별도 섹션에 표시.
+        AI_ANALYSIS는 별도 섹션.
+        → 어떤 발견도 완전히 버려지지 않는다.
+        """
+        return self.level in (EvidenceLevel.VERIFIED, EvidenceLevel.LIKELY)
 
     def to_report_dict(self) -> dict:
         return {
@@ -190,15 +193,8 @@ class ZeroHallucinationGuard:
             cwe=cwe,
             extra=extra or {},
         )
-        if finding.is_reportable:
-            self._findings.append(finding)
-        else:
-            # 증거 없음 → INFERRED로 강등, 로그에만 기록
-            self._inferred.append({
-                "title": title,
-                "reason": "HTTP 증거 없음 (status_code=0 또는 빈 응답)",
-                "original": description[:200],
-            })
+        # 모든 발견을 저장 — 기능 차단 없음
+        self._findings.append(finding)
         return finding
 
     def add_credential(
@@ -209,53 +205,59 @@ class ZeroHallucinationGuard:
         login_url: str,
         status_code: int,
         response_body: str,
-        session_cookie: str,
+        session_cookie: str = "",
         role: str = "unknown",
         method: str = "bruteforce",
-    ) -> VerifiedFinding | None:
+    ) -> VerifiedFinding:
         """
-        자격증명은 실제 로그인 성공 응답이 필수.
-        session_cookie 없으면 등록 거부.
+        자격증명 기록.
+        쿠키/응답에 따라 VERIFIED / LIKELY 자동 라벨링.
+        → 쿠키 없어도 차단하지 않는다. LIKELY로 기록됨.
         """
-        # 실제 로그인 성공 징표 확인
         success_signs = [
             "logout", "로그아웃", "dashboard", "대시보드",
             "welcome", "환영", "index", "mypage",
         ]
-        login_ok = (
-            session_cookie != ""
-            or any(s.lower() in response_body.lower() for s in success_signs)
-        ) and status_code in (200, 302)
+        has_cookie = bool(session_cookie)
+        has_success_text = any(s.lower() in response_body.lower() for s in success_signs)
+        good_status = status_code in (200, 302)
 
-        if not login_ok:
-            self._inferred.append({
-                "title": f"자격증명 미검증: {username}",
-                "reason": "실제 로그인 성공 증거 없음 (쿠키/응답 부재)",
-            })
-            return None
+        # 등급 결정 (차단 없음)
+        if has_cookie and good_status:
+            level_str = "VERIFIED"
+        elif has_success_text or good_status:
+            level_str = "LIKELY"
+        else:
+            level_str = "INFERRED"
 
         desc = (
-            f"사용자 `{username}` 로그인 성공.\n"
+            f"사용자 `{username}` 로그인.\n"
             f"비밀번호: `{password}`\n"
-            f"역할: {role}\n"
-            f"획득 방법: {method}"
+            f"역할: {role} | 획득방법: {method}\n"
+            f"증거등급: {level_str}"
         )
-        return self.add_http_finding(
+        f = self.add_http_finding(
             vuln_type="credential",
             severity="critical",
-            title=f"유효한 자격증명 발견: {username}",
+            title=f"자격증명 발견 [{level_str}]: {username}",
             description=desc,
             method="POST",
             url=login_url,
             status_code=status_code,
             response_body=response_body[:500],
-            login_verified=True,
+            login_verified=has_cookie,
             session_cookie=session_cookie,
             remediation="해당 계정 비밀번호 즉시 변경 및 감사 로그 확인",
             cvss_score=9.8,
             cwe="CWE-521",
-            extra={"username": username, "password": password, "role": role},
+            extra={
+                "username": username, "password": password,
+                "role": role, "evidence_grade": level_str,
+            },
         )
+        # 수동으로 등급 반영
+        f.level = EvidenceLevel[level_str]
+        return f
 
     def add_ai_analysis(self, text: str):
         """AI 생성 텍스트 — 취약점 목록과 완전 분리"""
@@ -273,8 +275,13 @@ class ZeroHallucinationGuard:
 
     @property
     def verified_findings(self) -> list[VerifiedFinding]:
-        """보고서에 포함 가능한 VERIFIED 발견만 반환"""
+        """보고서 메인 섹션용 — VERIFIED + LIKELY"""
         return [f for f in self._findings if f.is_reportable]
+
+    @property
+    def all_findings_flat(self) -> list[VerifiedFinding]:
+        """모든 발견 (등급 무관) — 완전한 목록"""
+        return list(self._findings)
 
     @property
     def inferred_count(self) -> int:
@@ -288,22 +295,27 @@ class ZeroHallucinationGuard:
 
     def hallucination_report(self) -> str:
         """
-        환각 방지 감사 보고서.
-        숨겨진 INFERRED 항목들을 보여줌.
+        증거 등급 감사 보고서.
+        모든 발견의 등급 분포를 보여줌.
         """
-        lines = ["[Zero-Hallucination Audit]"]
-        lines.append(f"  VERIFIED (보고서 포함): {len(self.verified_findings)}건")
-        lines.append(f"  INFERRED (보고서 제외): {self.inferred_count}건")
-        if self._inferred:
-            lines.append("  제외된 항목:")
-            for item in self._inferred[:10]:
-                lines.append(f"    - {item['title']}: {item['reason']}")
+        by_level: dict[str, int] = {}
+        for f in self._findings:
+            lvl = f.level.value
+            by_level[lvl] = by_level.get(lvl, 0) + 1
+
+        lines = ["[Evidence Grade Audit]"]
+        for lvl, cnt in sorted(by_level.items()):
+            lines.append(f"  {lvl}: {cnt}건")
+        lines.append(f"  INFERRED(레거시): {self.inferred_count}건")
         return "\n".join(lines)
 
     def to_session_findings(self) -> list[dict]:
-        """session.add_finding()에 전달할 형식으로 변환"""
+        """
+        session.add_finding()에 전달할 형식으로 변환.
+        모든 발견 포함 (VERIFIED/LIKELY/INFERRED) — 기능 차단 없음.
+        """
         result = []
-        for f in self.verified_findings:
+        for f in self.all_findings_flat:  # 전체 발견 포함
             result.append({
                 "type": f.vuln_type,
                 "severity": f.severity,

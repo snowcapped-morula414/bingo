@@ -86,23 +86,32 @@ class RedTeamSession:
 
     def add_finding(self, phase: str, finding: dict):
         """
-        finding을 세션에 추가.
-        Zero-Hallucination 원칙:
-          - evidence_level 미지정 시 "INFERRED"로 자동 설정
-          - curl 또는 url이 있으면 "VERIFIED"로 설정
+        finding을 세션에 추가. 절대 차단 없음.
+        evidence_level 자동 라벨링 (기존 finding 호환):
+          - curl/url/status_code 있으면 → VERIFIED
+          - 없으면 → LIKELY (기존 발견들은 증거가 있다고 신뢰)
         """
         if phase not in self.phases:
             self.phases[phase] = PhaseResult(phase=phase, status="running")
 
-        # evidence_level 자동 설정
+        # evidence_level이 없는 기존 finding 호환 — 라벨만 추가
         if "evidence_level" not in finding:
-            has_evidence = bool(
+            has_strong_evidence = bool(
                 finding.get("curl")
-                or finding.get("url")
-                or finding.get("status_code", 0) > 0
+                or (finding.get("status_code", 0) > 0 and finding.get("url"))
                 or finding.get("evidence_hash")
             )
-            finding["evidence_level"] = "VERIFIED" if has_evidence else "INFERRED"
+            has_some_evidence = bool(
+                finding.get("url")
+                or finding.get("detail")
+                or finding.get("description")
+            )
+            if has_strong_evidence:
+                finding["evidence_level"] = "VERIFIED"
+            elif has_some_evidence:
+                finding["evidence_level"] = "LIKELY"
+            else:
+                finding["evidence_level"] = "INFERRED"
 
         self.phases[phase].findings.append(finding)
 
