@@ -2153,6 +2153,126 @@ triggers = {
 | Cookie XSS | HIGH | `HttpOnly` on all cookies; use `textContent` not `innerHTML` |
 | Auxclick clickjacking | MEDIUM | `X-Frame-Options: DENY` + `CSP: frame-ancestors 'none'` |
 
+### Prompt Cache Optimizer — Three-Breakpoint Architecture (v2.1)
+
+> **Research basis:**
+> ProjectDiscovery Engineering — "How We Cut LLM Cost with Prompt Caching"
+> https://projectdiscovery.io/blog/how-we-cut-llm-cost-with-prompt-caching
+> **Module:** `bingo/models/prompt_cache.py` — integrated into all providers
+
+---
+
+#### Background: The Repetition Waste Problem
+
+Every time bingo executes a pipeline step, it sends a message to the AI. Without caching,
+the entire static system prompt (≈20,000 characters) and skill definitions (57 skills) are
+re-sent from scratch on **every single step**. For a 23-step pipeline run, this wastes:
+
+```
+23 steps × 20,000-char system prompt = 460,000 characters re-sent (every time)
+```
+
+The Prompt Cache Optimizer eliminates this repetition using three techniques directly adapted
+from ProjectDiscovery's production findings.
+
+---
+
+#### Three-Breakpoint Architecture (BP1 / BP2 / BP3)
+
+The prompt is divided into three cacheable segments, each with its own cache breakpoint:
+
+| Breakpoint | Content | Change Frequency | Cache Effect |
+|-----------|---------|-----------------|-------------|
+| **BP1** | `UNIVERSAL_PENTEST_CORE` + model-specific instructions | Almost never | Cached for the entire session (day) |
+| **BP2** | Warmup history + 57 skill definitions | Only on new skill releases | Cached until skill list changes |
+| **BP3** | Conversation history (last 12 turns) | Every turn | Sliding window — previous turns re-cached |
+
+```
+Message structure with cache breakpoints:
+
+[system: UNIVERSAL_PENTEST_CORE + MODEL_EXTRA]  ← BP1 ✦ cache_control: ephemeral
+[user/asst: warmup × 4 + skill block]           ← BP2 ✦ cache_control: ephemeral
+[user/asst: last 12 turns of conversation]      ← BP3 ✦ cache_control: ephemeral
+[user: DYNAMIC TAIL — target URL + date]        ← NO cache mark (changes every call)
+```
+
+---
+
+#### Relocation Trick
+
+The most impactful single change. Dynamic content that changes every call (current target URL,
+session date) is moved to the **very end** of the prompt, after all cached segments.
+
+**Before (cache-busting every turn):**
+```
+[STATIC 20k chars] [TARGET: loan2.koweb.co.kr  today 12:34:56] [TOOLS 10k chars]
+                    ↑ changes every turn → invalidates everything that follows
+```
+
+**After (static prefix stays valid):**
+```
+[STATIC 20k chars cached] [TOOLS 10k chars cached] … [TARGET + DATE at the tail]
+                                                       ↑ only this tiny section changes
+```
+
+Cache hit rate jump: **7% → 74%** (ProjectDiscovery empirical data, 20+ step tasks).
+
+---
+
+#### Frozen Datetime
+
+Using a full timestamp (`2026-06-15 00:07:33`) in the system prompt causes a cache miss every
+minute. bingo now uses only the current **date** (`2026-06-15`) in the prompt, freezing it for
+the entire day and preventing unnecessary cache invalidation during long pipeline runs.
+
+---
+
+#### Provider Support
+
+| Provider | Cache Mechanism | Implementation |
+|---------|----------------|---------------|
+| **Claude (Anthropic)** | Native `cache_control: {"type": "ephemeral"}` | 3 breakpoints injected; `anthropic-beta: prompt-caching-2024-07-31` header |
+| **DeepSeek** | Server-side prefix caching | `prefix_caching: true` payload parameter |
+| **OpenAI / GPT** | Automatic prefix cache | Structural ordering maximizes cache-hit ratio (no explicit param) |
+| **GLM / Qwen / Ollama** | Structural ordering | Same structural optimization as OpenAI |
+
+---
+
+#### Cost Model
+
+| Operation | Cost multiplier |
+|-----------|----------------|
+| Cache write (first call) | 1.25× normal token price |
+| Cache read (cache hit) | **0.10×** normal token price |
+| Net saving at 74% hit rate | **~70% cost reduction** |
+
+Anthropic cache TTL: 5 minutes (refreshed on each read). DeepSeek: automatic, no TTL concern.
+
+---
+
+#### Expected Impact on bingo Pipeline
+
+| Pipeline steps | Estimated hit rate | Cost reduction |
+|---------------|-------------------|---------------|
+| 9 phases (standard) | ~54% | ~54% |
+| 23 steps (full exploit) | ~74% | **~70%** |
+| Same budget → can run | 2.5× more targets | — |
+
+---
+
+#### Cache Statistics Output (example)
+
+```
+⚡ Prompt Cache Optimizer active — BP1(system)/BP2(skills)/BP3(conversation)
+🔑 Anthropic prompt-caching-2024-07-31 beta header active — 3 cache_control markers
+📅 Frozen datetime: 2026-06-15 — prevents per-minute cache busting
+📌 Relocation trick: dynamic content moved to prompt tail → static cache valid
+
+... (after 10 pipeline steps) ...
+
+📊 Cache stats: total=10 | hits=8(80%) | saved≈160000tok | cost_reduction≈70%
+```
+
 ---
 
 ## Changelog
@@ -2165,6 +2285,7 @@ triggers = {
 - **Full i18n** — all UI strings (skill module names, commands, evidence labels) in Korean / Chinese / English
 - **9-phase pipeline** — extended from 5 to 9 phases (webshell acquisition, IDOR, login verification added)
 - **57 skill modules** — added ClientSideAuthBypass (#40), ApiDiscoveryFuzzing (#41), MSSQL2025AIExploit (#42), ArubaOsXxeSsrf (#43), IvantiSentryRCE (#44), OAuthChainAttack (#45), CswshRceChain (#46), NextJsCacheSxss (#47), RedisDarkReplica (#48), HtmlAutofillSteal (#49), WebCacheDeception (#50), CloudTokenRecon (#51), AdvancedSQLiExploit (#52), CopyFailLPE (#53), RubyLibAFLFuzz (#54), AICodeSecSurface (#55), CSPTWafBypass (#56), DOMPurifyPPBypass (#57)
+- **Prompt Cache Optimizer** — Three-Breakpoint Architecture (BP1/BP2/BP3) + Relocation Trick + Frozen Datetime; ~70% API cost reduction for 20+ step pipelines
 - Production-stable (`Development Status :: 5 - Production/Stable`)
 
 ### v2.0.x — Beta

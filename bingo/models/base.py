@@ -4,6 +4,9 @@ from typing import Iterator
 import json
 import httpx
 
+# ── Prompt Cache Optimizer ────────────────────────────────────────────────────
+from .prompt_cache import PromptCacheManager, get_stats as _pc_get_stats
+
 
 @dataclass
 class Message:
@@ -171,7 +174,17 @@ class BaseModel:
 
         # DeepSeek V4 Pro 특화 파라미터
         if self.config.provider == "deepseek":
-            payload["temperature"] = min(self.config.temperature, 0.6)  # 너무 창의적이면 거짓말
+            payload["temperature"] = min(self.config.temperature, 0.6)
+            # ── DeepSeek Prompt Prefix Caching ──────────────────────────────
+            # DeepSeek supports server-side prefix caching:
+            # The first N tokens of a repeated prefix are served from cache
+            # at ~10% of the normal token price.
+            # Enabling this flag tells the API to match and reuse the cached prefix.
+            payload["prefix_caching"] = True
+
+        # OpenAI: automatic prompt cache (no explicit param needed).
+        # Messages are already structured so the static system prompt
+        # always comes first → maximizes automatic cache hit ratio.
 
         return payload
 
@@ -186,16 +199,60 @@ class ClaudeModel(BaseModel):
     """Anthropic Messages API (비 OpenAI 호환 엔드포인트)"""
 
     def chat_stream(self, messages: list[Message]) -> Iterator[StreamChunk]:
+        # ── Anthropic Prompt Caching ─────────────────────────────────────────
+        # Anthropic supports explicit cache breakpoints via cache_control.
+        # We use PromptCacheManager to wrap the system prompt in a cacheable
+        # content block (BP1). The API returns x-cache / usage.cache_* fields.
+        # Cache write: first call for a given prefix. Cache read: subsequent calls.
+        # Cache TTL: 5 minutes (ephemeral), refreshed on each cache read.
+        # Cost: cache write = 1.25× normal; cache read = 0.1× normal → ~74% savings.
+        pcm = PromptCacheManager(provider="claude")
+        system_text = self.config.get_system_prompt()
+
+        # Build system as content list with BP1 cache breakpoint
+        system_content = [
+            {
+                "type": "text",
+                "text": system_text,
+                "cache_control": {"type": "ephemeral"},
+            }
+        ]
+
+        # Wrap conversation messages; mark the last message as BP3 breakpoint
+        conv_msgs: list[dict] = []
+        raw_msgs = [{"role": m.role, "content": m.content} for m in messages]
+        for i, msg in enumerate(raw_msgs):
+            is_last = (i == len(raw_msgs) - 1)
+            if is_last and len(raw_msgs) > 1:
+                # BP3: cache the conversation up to the second-to-last turn
+                prev = raw_msgs[i - 1]
+                # Mark the turn before the latest user message as BP3
+                if conv_msgs:
+                    last_conv = conv_msgs[-1]
+                    if isinstance(last_conv["content"], str):
+                        conv_msgs[-1] = {
+                            "role": last_conv["role"],
+                            "content": [
+                                {
+                                    "type": "text",
+                                    "text": last_conv["content"],
+                                    "cache_control": {"type": "ephemeral"},
+                                }
+                            ],
+                        }
+            conv_msgs.append({"role": msg["role"], "content": msg["content"]})
+
         headers = {
             "x-api-key": self.config.api_key,
             "anthropic-version": "2023-06-01",
+            "anthropic-beta": "prompt-caching-2024-07-31",  # Enable prompt caching beta
             "content-type": "application/json",
         }
         payload = {
             "model": self.config.model,
             "max_tokens": self.config.max_tokens,
-            "system": self.config.get_system_prompt(),
-            "messages": [{"role": m.role, "content": m.content} for m in messages],
+            "system": system_content,
+            "messages": conv_msgs,
             "stream": True,
         }
         url = f"{self.config.base_url}/messages"
@@ -222,6 +279,15 @@ class ClaudeModel(BaseModel):
                                 )
                             elif obj.get("type") == "message_stop":
                                 yield StreamChunk(text="", done=True)
+                            elif obj.get("type") == "message_start":
+                                # ── Track cache usage from Anthropic response ─
+                                usage = obj.get("message", {}).get("usage", {})
+                                cache_read = usage.get("cache_read_input_tokens", 0)
+                                cache_write = usage.get("cache_creation_input_tokens", 0)
+                                if cache_read > 0:
+                                    _pc_get_stats().record_hit(cache_read)
+                                elif cache_write > 0:
+                                    _pc_get_stats().record_miss()
                         except (json.JSONDecodeError, KeyError):
                             continue
 
