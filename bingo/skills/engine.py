@@ -203,6 +203,17 @@ BUILTIN_MODULES: list[dict] = [
          "CONFIG GET slave-read-only 접근 확인",
          "완전 익스플로잇 가능 시 DarkReplica PoC 자동 생성",
      ]},
+    {"id": "49", "name": "HTML Injection + Chrome 자동완성 CSP 우회 비번탈취", "en": "HtmlAutofillSteal", "ko": "HTML_AutoFill_비번탈취",
+     "skills": [
+         "GET 파라미터 HTML 반사 취약점 자동 탐지",
+         "로그인 폼 (email/password) 존재 여부 확인",
+         "CSP 분석 — script-src 차단 여부 (XSS 불가 → HTML만으로 공격 가능)",
+         "Referrer-Policy 오버라이드 가능 여부 확인",
+         "<meta name=referrer content=unsafe-url> + <meta Refresh> 체인 검증",
+         "Chrome 자동완성 악용 → GET 폼으로 비번 URL 노출 확인",
+         "1-click 익스플로잇 PoC URL 자동 생성",
+         "CSS full-page clickjack PoC 자동 생성 (style-src unsafe-inline 허용 시)",
+     ]},
     {"id": "46", "name": "CSWSH+EXE노출+로컬WebSocket RCE체인", "en": "CswshRceChain", "ko": "CSWSH_RCE체인탐지",
      "skills": [
          "JS 파일에서 EXE 다운로드 함수 자동 추출",

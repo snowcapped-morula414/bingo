@@ -447,6 +447,49 @@ def _get_recommendation(vuln_type: str) -> str:
         if finding_type in redis_recs:
             return redis_recs[finding_type]
 
+        # HTML Autofill Steal 권고
+        autofill_recs = {
+            "csp_detected": (
+                "1. CSP는 HTML Injection을 막지 않음 — 반사된 모든 파라미터를 컨텍스트별 인코딩 처리\n"
+                "2. <meta http-equiv> 및 <meta name=referrer> 태그 삽입을 차단하는 별도 필터 적용\n"
+                "3. script-src 'none'만으로는 충분하지 않음 — HTML/CSS injection 가능성 별도 검토 필수"
+            ),
+            "login_form_found": (
+                "1. 로그인 폼이 있는 페이지의 모든 GET 파라미터를 반사 없이 처리\n"
+                "2. 비밀번호 폼을 GET 방식으로 제출되지 않도록 강제 POST 설정\n"
+                "3. autocomplete=off 설정 (보조적 방어 — 브라우저마다 다름)"
+            ),
+            "html_injection_found": (
+                "1. [긴급] 해당 파라미터의 출력을 HTML Entity 인코딩으로 즉시 수정\n"
+                "2. DOMPurify 또는 서버측 HTML sanitizer 적용\n"
+                "3. Content-Type: text/plain으로 응답 처리 가능한 엔드포인트는 전환 검토"
+            ),
+            "csp_bypassed_via_html": (
+                "1. [긴급] strict CSP가 있어도 HTML injection이 존재하면 비번 탈취 가능 — 즉시 패치\n"
+                "2. HTML injection 포인트를 우선순위 Critical로 분류하여 처리\n"
+                "3. 동일 도메인 내 반사 파라미터 전수 조사 실시"
+            ),
+            "referrer_policy_override": (
+                "1. Referrer-Policy: no-referrer 헤더를 HTTP 응답에 명시적으로 설정\n"
+                "2. <meta name=referrer> 삽입을 CSP에서 차단할 방법 검토 (meta-src 제한)\n"
+                "3. Chrome의 <meta> 태그에 의한 Referrer-Policy 오버라이드 동작을 고려한 방어 설계"
+            ),
+            "autofill_steal_exploitable": (
+                "1. [긴급] HTML injection 발생 파라미터 즉시 수정 (Entity 인코딩)\n"
+                "2. 비밀번호를 절대 GET 파라미터로 전송하지 않도록 폼 method를 POST로 강제\n"
+                "3. Referrer-Policy: no-referrer 서버 응답 헤더 추가\n"
+                "4. 공격자 서버(attacker.example.com)로의 Referer 전송 차단을 위한 WAF 규칙 추가\n"
+                "5. 입력값 검증 우회 패턴에 대한 정기 자동화 스캔 도입"
+            ),
+            "autofill_steal_likely": (
+                "1. 로그인 페이지에 HTML injection 포인트가 없는지 전수 점검\n"
+                "2. 외부에서 접근 가능한 GET 파라미터 반사 여부 정기 감사\n"
+                "3. Chrome 사용자를 대상으로 한 비번 탈취 가능성 인식 교육"
+            ),
+        }
+        if finding_type in autofill_recs:
+            return autofill_recs[finding_type]
+
         # OAuth Chain Attack 권고
         "email_trust_chain": (
             "1. 이메일 인증 없이 계정 생성 즉시 차단 — 검증 전 로그인/OAuth 토큰 발급 금지\n"
