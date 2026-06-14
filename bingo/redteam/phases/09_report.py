@@ -292,6 +292,24 @@ def _get_recommendation(vuln_type: str) -> str:
             "2. 포트 32000 외부 노출 즉시 차단\n"
             "3. 침투테스터 OOB 인프라를 이용한 정밀 검증 권고"
         ),
+        # Ivanti Sentry CVE-2026-10520 권고
+        "rce_confirmed": (
+            "1. Ivanti Sentry를 R10.5.2 / R10.6.2 / R10.7.1 이상으로 즉시 업그레이드\n"
+            "2. /mics/api/v2/sentry/mics-config/handleMessage 엔드포인트 방화벽 차단\n"
+            "3. Sentry 관리 인터페이스를 격리된 관리망에서만 접근 허용\n"
+            "4. CVE-2026-10523 (관리자 계정 생성 취약점) 동시 패치 필수\n"
+            "5. 침해 여부 확인: /mics/ 엑세스 로그 검토 (비정상 POST 요청)"
+        ),
+        "endpoint_reachable": (
+            "1. 취약 엔드포인트 즉시 방화벽 차단\n"
+            "2. Ivanti Sentry 패치 적용 후 재확인\n"
+            "3. 인증 없이 접근 가능한 API 엔드포인트 전수 감사"
+        ),
+        "product_detected": (
+            "1. Ivanti Sentry 버전 확인 및 최신 패치 적용\n"
+            "2. CVE-2026-10520, CVE-2026-10523 영향 여부 검토\n"
+            "3. 외부 인터넷에서 Sentry 관리 포트 접근 차단"
+        ),
     }
     return recs.get(vuln_type, "해당 취약점에 맞는 보안 패치 적용")
 

