@@ -737,6 +737,137 @@ http://target.com/?html=
 
 ---
 
+### Ruby Web App Fuzzing Surface Detection — Ruzzy + LibAFL C Extension Attack Surface Mapper (v2.1)
+
+> **Research basis:**  
+> Matt Schwager (Trail of Bits)  
+> ["Extending Ruzzy with LibAFL"](https://blog.trailofbits.com/2026/04/29/extending-ruzzy-with-libafl/)  
+> Published: April 29, 2026 | Ruzzy 0.8.0 released with LibAFL backend support  
+> **Skill module:** `RubyLibAFLFuzz` (id: 54)
+
+#### Background
+
+Ruzzy is Trail of Bits' coverage-guided fuzzer for pure Ruby code and Ruby C extensions. Version 0.8.0 introduced support for LibAFL as an alternative to the original LLVM libFuzzer backend.
+
+Key technical insights from the research:
+
+| Issue | Root Cause | Solution Applied |
+|-------|-----------|-----------------|
+| `.preinit_array` linker error | GNU `ld` does not support `.preinit_array` sections required by LibAFL's `libFuzzer.a` | Switch from GNU `ld` to LLVM `lld` linker |
+| Coverage map initialization order | libFuzzer lazily accepts maps; LibAFL requires all maps registered **before** `LLVMFuzzerRunDriver` starts | Pre-require Ruby C extensions before `Ruzzy.fuzz {}` call, not inside the lambda |
+| SanitizerCoverage `.init_array` → `.preinit_array` | C extensions register coverage maps via `.init_array` but LibAFL expects `.preinit_array` | Ensured Ruzzy harness loads C extension at startup via `require` outside lambda |
+
+#### What bingo Detects (RubyLibAFLFuzz)
+
+bingo's `RubyLibAFLFuzz` module maps the fuzzing attack surface of Ruby-based web applications:
+
+| Detection Target | C Extension | Fuzz Value |
+|-----------------|-------------|------------|
+| GraphQL endpoint | `graphql-ruby` / `libgraphqlparser` | **HIGH** — binary parser, complex grammar |
+| JSON API endpoints | `oj` / `Oj C extension` | **HIGH** — native JSON parser |
+| XML / sitemap endpoints | `nokogiri` / libxml2 | **HIGH** — XML parser with DTD support |
+| MessagePack binary endpoints | `msgpack-ruby C extension` | **HIGH** — binary protocol |
+| Protobuf endpoints | `google-protobuf C extension` | **HIGH** — binary protocol |
+| File upload + image processing | `RMagick` / `MiniMagick` / ImageMagick | **HIGH** — image format parser |
+| YAML deserialization endpoints | `Psych C extension` | **HIGH** — unsafe object deserialization risk |
+| Form / URL-encoded data | `Rack` / URI C parser | **MEDIUM** |
+
+#### AI Auto-Trigger Conditions
+
+The module activates automatically when bingo's AI detects:
+
+- `Server:` header contains `Passenger`, `Puma`, `Unicorn`, `Thin`, or `WEBrick`
+- `X-Powered-By:` header contains `Phusion Passenger` or `Rack`
+- Response cookies contain `_session_id` or `rack.session`
+- Response body contains Ruby stack traces (`ActionController::`, `ActiveRecord::`, `.rb:` paths)
+- URL matches known Ruby CMS patterns: `redmine`, `gitlab`, `discourse`, `spree`, `solidus`, `refinery`
+- `raw_findings` from earlier phases contain Ruby framework keywords
+
+#### Generated Ruzzy + LibAFL Harness Examples
+
+bingo automatically generates harness templates for discovered surfaces:
+
+**GraphQL (libgraphqlparser C extension):**
+```ruby
+# FUZZER_NO_MAIN_LIB=/usr/lib/libFuzzer.a LD=lld ruzzy fuzz harness.rb
+require 'graphql'   # pre-require BEFORE fuzz() — registers .preinit_array coverage map
+
+Ruzzy.fuzz do |data|
+  begin
+    GraphQL.parse(data.to_s)
+  rescue GraphQL::ParseError
+    # expected parse errors — only crashes matter
+  end
+end
+```
+
+**Nokogiri XML (libxml2 C extension):**
+```ruby
+require 'nokogiri'
+
+Ruzzy.fuzz do |data|
+  begin
+    Nokogiri::XML(data.to_s) { |c| c.strict }
+  rescue Nokogiri::XML::SyntaxError
+  end
+end
+```
+
+**YAML unsafe load risk detection:**
+```ruby
+# Risk: Psych.load enables Ruby object deserialization → RCE via !!ruby/object
+# Detection payload:
+# --- !!ruby/object:Gem::Installer 'a'
+require 'psych'
+
+Ruzzy.fuzz do |data|
+  begin
+    Psych.safe_load(data.to_s)   # use safe_load in production!
+  rescue Psych::SyntaxError
+  end
+end
+```
+
+#### Evidence Levels
+
+| Level | Meaning |
+|-------|---------|
+| `VERIFIED` | Ruby framework confirmed + C extension parser endpoint responded 200/201 + version leaked |
+| `LIKELY` | Ruby framework confirmed + parser endpoints found (no version confirmation) |
+| `INFERRED` | Ruby HTTP headers detected, no parser surface confirmed |
+| `AI_ANALYSIS` | Response patterns suggest Ruby, no definitive HTTP-level confirmation |
+
+#### Key Takeaway: LibAFL vs. libFuzzer
+
+- **libFuzzer** (LLVM): In maintenance mode as of 2025, expects coverage maps lazily
+- **LibAFL** (Rust-based): Actively maintained, better performance, expects all coverage maps registered at startup via `.preinit_array`
+- **Migration requirement**: Switch to `lld` linker; pre-require all C extensions before `Ruzzy.fuzz {}`
+
+#### Quick Remediation
+
+```bash
+# 1. Set YAML to always use safe_load
+grep -r "YAML.load\b" app/ lib/   # find unsafe calls
+# Replace: YAML.load → YAML.safe_load
+
+# 2. Enable Brakeman SAST for Ruby
+gem install brakeman
+brakeman --run-all-checks
+
+# 3. Update vulnerable gems
+bundle audit check --update
+bundle update nokogiri oj graphql msgpack google-protobuf
+
+# 4. Run Ruzzy+LibAFL with lld
+FUZZER_NO_MAIN_LIB=/usr/lib/libFuzzer.a LD=lld bundle exec ruzzy fuzz harness.rb
+
+# 5. Remove framework version from headers (Rails)
+# config/application.rb
+config.action_dispatch.default_headers = { 'Server' => 'nginx' }
+```
+
+---
+
 ### Copy Fail LPE — CVE-2026-31431 Linux Kernel Local Privilege Escalation + Container Escape (v2.1)
 
 > **Research basis:**  
@@ -1473,7 +1604,7 @@ bingo/
 - **IDOR Phase** — real-world IDOR enumeration, PII detection, and IDOR-based password reset with login verification
 - **Full i18n** — all UI strings (skill module names, commands, evidence labels) in Korean / Chinese / English
 - **9-phase pipeline** — extended from 5 to 9 phases (webshell acquisition, IDOR, login verification added)
-- **53 skill modules** — added ClientSideAuthBypass (#40), ApiDiscoveryFuzzing (#41), MSSQL2025AIExploit (#42), ArubaOsXxeSsrf (#43), IvantiSentryRCE (#44), OAuthChainAttack (#45), CswshRceChain (#46), NextJsCacheSxss (#47), RedisDarkReplica (#48), HtmlAutofillSteal (#49), WebCacheDeception (#50), CloudTokenRecon (#51), AdvancedSQLiExploit (#52), CopyFailLPE (#53)
+- **54 skill modules** — added ClientSideAuthBypass (#40), ApiDiscoveryFuzzing (#41), MSSQL2025AIExploit (#42), ArubaOsXxeSsrf (#43), IvantiSentryRCE (#44), OAuthChainAttack (#45), CswshRceChain (#46), NextJsCacheSxss (#47), RedisDarkReplica (#48), HtmlAutofillSteal (#49), WebCacheDeception (#50), CloudTokenRecon (#51), AdvancedSQLiExploit (#52), CopyFailLPE (#53), RubyLibAFLFuzz (#54)
 - Production-stable (`Development Status :: 5 - Production/Stable`)
 
 ### v2.0.x — Beta

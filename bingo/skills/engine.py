@@ -258,6 +258,17 @@ BUILTIN_MODULES: list[dict] = [
          "온디스크 파일 무결성 검사 우회 특성 탐지 (페이지 캐시 수정, SHA256 기반 탐지 불가)",
          "AI 판단: 리눅스 서버 + post-RCE 컨텍스트 → 자동 활성화",
      ]},
+    {"id": "54", "name": "Ruby 웹앱 Ruzzy+LibAFL C 확장 파서 퍼징 표면 탐지", "en": "RubyLibAFLFuzz", "ko": "Ruby퍼징표면탐지",
+     "skills": [
+         "Ruby 프레임워크 자동 감지: HTTP 헤더/쿠키/에러 바디 분석 (Rails/Sinatra/Puma/Unicorn/Passenger/Rack)",
+         "C 확장 파서 엔드포인트 탐지: Nokogiri(XML), Oj(JSON), graphql-ruby(GraphQL), Psych(YAML), msgpack-ruby, google-protobuf",
+         "GraphQL 엔드포인트 확인 → libgraphqlparser C 확장 → Ruzzy+LibAFL 최우선 퍼징 타겟",
+         "파일 업로드 엔드포인트 발견 → RMagick/MiniMagick/ImageMagick C 확장 파이프라인 퍼징 표면 평가",
+         "YAML unsafe load 위험 탐지: Psych.load / YAML.load 사용 패턴 → Ruby 객체 역직렬화 위험",
+         "Gem/프레임워크 버전 정보 leak 탐지 (HTTP 헤더 / 에러 바디에서 버전 파싱)",
+         "Ruzzy+LibAFL 하네스 코드 자동 생성: lld/.preinit_array 패치 적용 LibAFL 0.8.0 호환 harness template",
+         "AI 판단: Ruby 헤더 감지 or 파일 업로드 바이너리 처리 or Ruby CMS URL 패턴 → 자동 활성화",
+     ]},
     {"id": "46", "name": "CSWSH+EXE노출+로컬WebSocket RCE체인", "en": "CswshRceChain", "ko": "CSWSH_RCE체인탐지",
      "skills": [
          "JS 파일에서 EXE 다운로드 함수 자동 추출",

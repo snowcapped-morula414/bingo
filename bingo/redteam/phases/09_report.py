@@ -718,6 +718,68 @@ def _get_recommendation(vuln_type: str) -> str:
     if finding_type in copyfail_recs:
         return copyfail_recs[finding_type]
 
+    # Ruby Ruzzy+LibAFL C extension parser fuzzing surface 권고
+    ruby_libafl_recs = {
+        "c_ext_parser": (
+            "1. Ruzzy+LibAFL 지속 퍼징 캠페인 설정: 발견된 C 확장 파서 엔드포인트 대상 "
+            "(nokogiri, oj, graphql-ruby, msgpack-ruby, google-protobuf)\n"
+            "2. 모든 C 확장 파서에 입력 크기 제한 및 타임아웃 설정 "
+            "(request body size limit, rack timeout)\n"
+            "3. 파일 업로드 시 magic byte 검증 + 허용 MIME 타입 화이트리스트 적용\n"
+            "4. 역직렬화 입력 전 JSON Schema / XML Schema 사전 검증 추가\n"
+            "5. C 확장 파서 버전을 최신으로 유지 (bundle update nokogiri oj msgpack)\n"
+            "6. LibAFL 0.8.0 + Ruzzy 하네스 참고:\n"
+            "   FUZZER_NO_MAIN_LIB=/usr/lib/libFuzzer.a LD=lld bundle exec ruzzy fuzz harness.rb"
+        ),
+        "framework_detected": (
+            "1. HTTP 응답 헤더에서 Ruby/Rails/Sinatra 버전 정보 제거\n"
+            "   config.middleware.use Rack::Protection\n"
+            "2. 프로덕션 모드에서 상세 에러 메시지 비활성화\n"
+            "   config.consider_all_requests_local = false (Rails)\n"
+            "3. Ruzzy+LibAFL 퍼징으로 C 확장 파서 취약점 사전 발견\n"
+            "4. Brakeman (Ruby SAST) 정기 실행으로 소스코드 취약점 탐지\n"
+            "5. Bundler audit 설정으로 취약 gem 자동 경보 활성화"
+        ),
+        "yaml_unsafe": (
+            "1. 즉시 YAML.load / Psych.load → YAML.safe_load / Psych.safe_load 교체\n"
+            "   (YAML.safe_load는 Ruby 객체 역직렬화 차단)\n"
+            "2. permitted_classes 최소화: YAML.safe_load(data, permitted_classes: [])\n"
+            "3. Psych C 확장 대상 Ruzzy+LibAFL 퍼징:\n"
+            "   require 'psych'; Ruzzy.fuzz { |d| Psych.safe_load(d.to_s) }\n"
+            "4. 사용자 입력 YAML 수신 엔드포인트 제거 검토\n"
+            "5. Brakeman YAML 취약점 스캔: brakeman --run-all-checks"
+        ),
+        "gem_version_leak": (
+            "1. HTTP 응답 헤더에서 gem/프레임워크 버전 정보 제거\n"
+            "   Rack middleware로 Server 헤더 교체: config.middleware.use → custom Server header\n"
+            "2. bundle audit 설정으로 알려진 CVE 자동 탐지\n"
+            "3. 공개된 gem 버전과 CVE DB 교차 확인 (bundler-audit, ruby-advisory-db)\n"
+            "4. Gemfile.lock을 공개 저장소에 커밋하지 않도록 .gitignore 설정 검토"
+        ),
+        "graphql_endpoint": (
+            "1. GraphQL 쿼리 depth 제한: max_depth 설정 (graphql-ruby)\n"
+            "   GraphQL::Schema.max_depth(10)\n"
+            "2. GraphQL 쿼리 complexity 제한 설정\n"
+            "   GraphQL::Schema.max_complexity(200)\n"
+            "3. libgraphqlparser C 확장 Ruzzy+LibAFL 퍼징:\n"
+            "   require 'graphql'; Ruzzy.fuzz { |d| GraphQL.parse(d.to_s) rescue nil }\n"
+            "4. Introspection 프로덕션 비활성화:\n"
+            "   disable_introspection_entry_points if Rails.env.production?\n"
+            "5. graphql-ruby 최신 버전 유지 (bundle update graphql)"
+        ),
+        "file_upload": (
+            "1. 파일 업로드 MIME type 화이트리스트 검증 (magic bytes 기준)\n"
+            "2. 이미지 처리 시 MiniMagick/RMagick 대신 ImageMagick 정책 파일 강화\n"
+            "   /etc/ImageMagick-*/policy.xml → disable PS/EPS/PDF\n"
+            "3. 파일 업로드 파이프라인 Ruzzy+LibAFL 퍼징:\n"
+            "   MiniMagick::Image.open(tempfile) 하네스 작성\n"
+            "4. 업로드 파일을 웹 서버 document root 외부에 저장\n"
+            "5. CarrierWave/ActiveStorage 파일 타입 검증 플러그인 활성화"
+        ),
+    }
+    if finding_type in ruby_libafl_recs:
+        return ruby_libafl_recs[finding_type]
+
     return recs.get(vuln_type, "해당 취약점에 맞는 보안 패치 적용")
 
 
