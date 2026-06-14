@@ -23,15 +23,44 @@ pip-wheel-metadata/
 .DS_Store
 Thumbs.db
 
-# 테스트
+# Testing
 .pytest_cache/
 .coverage
 htmlcov/
 .ruff_cache/
 
-# Bingo 설정 (개인정보 포함)
-# ~/.config/bingo/config.json 은 홈 디렉토리에 있으므로 자동 제외
+# bingo config (contains API keys — never commit)
 *.local.json
 
-# 내보낸 대화
+# bingo exported sessions
 bingo_chat_*.md
+
+# bingo scan targets output (may contain sensitive PII/pentest data)
+targets/
+loot/
+idor_downloads/
+downloads/
+
+# Pentest artifact files (HTML captures, JS dumps, HWP/XLSX files)
+*.html
+*.js
+*.hwp
+*.xlsx
+*.pdf
+*.jpg
+*.png
+!assets/
+!bingo-github-profile.png
+headers.txt
+interesting_files.txt
+step*.txt
+step*.html
+*_debug.html
+*_debug.js
+*_full.js
+*_full.html
+idor_seq*
+idor_sensitive_*
+license_*.jpg
+reg_sqli_*.html
+probe__*.html
