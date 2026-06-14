@@ -162,6 +162,16 @@ BUILTIN_MODULES: list[dict] = [
          "CREATE EXTERNAL MODEL → NTLM 해시 탈취 PoC",
          "AI_GENERATE_EMBEDDINGS C2 채널 PoC",
      ]},
+    {"id": "43", "name": "ArubaOS XXE/SSRF预授权漏洞", "en": "ArubaOsXxeSsrf", "ko": "ArubaOS인증없는XXE",
+     "skills": [
+         "포트 32000/TCP 자동 감지",
+         "ArubaOS XML API 배너 확인",
+         "Pre-Auth XXE OOB SSRF 콜백 테스트",
+         "응답 타이밍 기반 블라인드 XXE 탐지",
+         "XXE SSRF로 내부 포트 스캔 자동화",
+         "재현 가능한 curl PoC 자동 생성",
+         "CVSS 9.3 Critical 수준 증거 문서화",
+     ]},
 ]
 
 

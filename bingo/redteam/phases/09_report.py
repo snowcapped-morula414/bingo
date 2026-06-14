@@ -267,6 +267,31 @@ def _get_recommendation(vuln_type: str) -> str:
             "2. sysadmin 역할은 관리 계정에만 부여\n"
             "3. 정기적 DB 계정 권한 감사 수행"
         ),
+        # ArubaOS XXE SSRF 권고
+        "aruba_banner": (
+            "1. ArubaOS 8.x를 최신 버전으로 즉시 업그레이드\n"
+            "2. 포트 32000/TCP를 방화벽에서 외부 차단 (관리망 격리)\n"
+            "3. XML API 엔드포인트에 인증 강제 적용\n"
+            "4. 외부 엔티티 처리(XXE) 비활성화 (XML 파서 설정)\n"
+            "5. 컨트롤러 아웃바운드 HTTP 연결 화이트리스트 제한"
+        ),
+        "xxe_oob_confirmed": (
+            "1. 즉시 ArubaOS 패치 적용 또는 포트 32000 방화벽 차단\n"
+            "2. XML External Entity 처리 완전 비활성화\n"
+            "3. 인증 없이 XML API 접근 불가하도록 AAA 프로파일 수정\n"
+            "4. 내부망 → 외부망 HTTP 아웃바운드 연결 차단\n"
+            "5. 침해 여부 확인: 컨트롤러 아웃바운드 로그 분석"
+        ),
+        "ssrf_internal_port": (
+            "1. SSRF 경유 내부 포트 접근 방지: XML API 처리 격리\n"
+            "2. 발견된 내부 서비스 추가 인증 강화\n"
+            "3. 네트워크 microsegmentation으로 컨트롤러 이동 제한"
+        ),
+        "xxe_timing": (
+            "1. ArubaOS XXE 취약점 패치 우선 적용\n"
+            "2. 포트 32000 외부 노출 즉시 차단\n"
+            "3. 침투테스터 OOB 인프라를 이용한 정밀 검증 권고"
+        ),
     }
     return recs.get(vuln_type, "해당 취약점에 맞는 보안 패치 적용")
 
