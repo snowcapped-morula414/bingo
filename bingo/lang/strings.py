@@ -1435,6 +1435,29 @@ _STRINGS.update({
     "panos_remediation":        {"ko": "🔧 수정: PAN-OS 업그레이드 10.2.14+/11.0.7+/11.2.5+ + 관리 인터페이스 IP 화이트리스트 + 인터넷 노출 즉시 차단",
                                   "zh": "🔧 修复: 升级PAN-OS至10.2.14+/11.0.7+/11.2.5+ + 管理界面IP白名单 + 立即阻止互联网暴露",
                                   "en": "🔧 Fix: Upgrade PAN-OS to 10.2.14+/11.0.7+/11.2.5+ + whitelist management interface IPs + block internet exposure immediately"},
+
+    # ── IngressNightmare RCE — Skill #62 ───────────────────────────────────────
+    "ingress_init":             {"ko": "🔍 IngressNightmare 스캐너 시작 — K8s 클러스터 + ingress-nginx 어드미션 컨트롤러 CVE-2025-1974 탐지",
+                                  "zh": "🔍 IngressNightmare扫描器启动 — 检测K8s集群 + ingress-nginx准入控制器CVE-2025-1974",
+                                  "en": "🔍 IngressNightmare Scanner started — detecting K8s cluster + ingress-nginx admission controller CVE-2025-1974"},
+    "ingress_k8s_detected":     {"ko": "☸️  Kubernetes 클러스터 감지됨{version} — ingress-nginx 취약점 체인 공격 표면 확인",
+                                  "zh": "☸️  检测到Kubernetes集群{version} — 确认ingress-nginx漏洞链攻击面",
+                                  "en": "☸️  Kubernetes cluster detected{version} — ingress-nginx vulnerability chain attack surface confirmed"},
+    "ingress_admission_exposed": {"ko": "🚨 ingress-nginx 어드미션 컨트롤러 무인증 노출! 포트 {port} — CVE-2025-1974 CVSS 9.8 직접 접근 가능",
+                                  "zh": "🚨 ingress-nginx准入控制器无认证暴露! 端口{port} — CVE-2025-1974 CVSS 9.8可直接访问",
+                                  "en": "🚨 ingress-nginx admission controller unauthenticated exposure! Port {port} — CVE-2025-1974 CVSS 9.8 direct access confirmed"},
+    "ingress_rce_chain":        {"ko": "💀 IngressNightmare RCE 체인 가능! 어드미션 컨트롤러 무인증 + 어노테이션 인젝션 + ssl_engine .so 로드 → 클러스터 전체 Secret 탈취",
+                                  "zh": "💀 IngressNightmare RCE链可行! 未认证准入控制器 + 注解注入 + ssl_engine .so加载 → 整个集群Secret泄露",
+                                  "en": "💀 IngressNightmare RCE chain possible! Unauthenticated admission + annotation injection + ssl_engine .so load → full cluster secret takeover"},
+    "ingress_not_found":        {"ko": "ℹ️  ingress-nginx 어드미션 컨트롤러 미감지 — CVE-2025-1974 공격 표면 없음",
+                                  "zh": "ℹ️  未检测到ingress-nginx准入控制器 — 无CVE-2025-1974攻击面",
+                                  "en": "ℹ️  ingress-nginx admission controller not detected — no CVE-2025-1974 attack surface"},
+    "ingress_version_vuln":     {"ko": "⚠️  ingress-nginx 취약 버전 감지: {version} — 1.11.5+/1.12.1+로 즉시 업그레이드 필요",
+                                  "zh": "⚠️  检测到ingress-nginx漏洞版本: {version} — 需立即升级至1.11.5+/1.12.1+",
+                                  "en": "⚠️  Vulnerable ingress-nginx version detected: {version} — immediate upgrade to 1.11.5+/1.12.1+ required"},
+    "ingress_remediation":      {"ko": "🔧 수정: ingress-nginx 1.11.5+/1.12.1+ 업그레이드 + NetworkPolicy로 kube-apiserver만 8443 접근 허용 + Gateway API 마이그레이션 고려(EOL 2025-11)",
+                                  "zh": "🔧 修复: 升级ingress-nginx至1.11.5+/1.12.1+ + NetworkPolicy仅允许kube-apiserver访问8443 + 考虑迁移到Gateway API(EOL 2025-11)",
+                                  "en": "🔧 Fix: Upgrade ingress-nginx to 1.11.5+/1.12.1+ + NetworkPolicy: only kube-apiserver can reach port 8443 + plan Gateway API migration (EOL Nov 2025)"},
 })
 
 

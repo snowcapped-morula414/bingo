@@ -2657,6 +2657,151 @@ bingo automatically activates Skill #61 when:
 
 ---
 
+### IngressNightmare — IngressNightmareScanner (v2.1)
+
+> **Research basis:**
+> Wiz Research — Nir Ohfeld, Ronen Shustin, Sagi Tzadik, Hillai Ben-Sasson (March 24, 2025)
+> "IngressNightmare: CVE-2025-1974 — 9.8 Critical RCE in Ingress NGINX for Kubernetes"
+> https://www.wiz.io/blog/ingress-nginx-kubernetes-vulnerabilities
+>
+> **Module:** `bingo/tools/ingress_nightmare_rce.py` — Skill #62 IngressNightmareScanner
+>
+> **CVEs:** CVE-2025-1974 (CVSS 9.8) · CVE-2025-24514 · CVE-2025-1097 · CVE-2025-1098
+
+---
+
+#### Impact at Scale
+
+| Metric | Value |
+|--------|-------|
+| Cloud environments affected | **43%** |
+| Publicly exposed vulnerable clusters | **6,500+** (Fortune 500 included) |
+| ingress-nginx cluster share | 41% of internet-facing clusters |
+| CVSS Score | **9.8 Critical** |
+
+---
+
+#### Architecture: Why the Bug Exists
+
+Ingress NGINX Controller translates Kubernetes Ingress objects into NGINX
+configurations and validates them with `nginx -t`. An admission webhook does this
+validation — it is **unauthenticated by default**, accessible from any pod.
+
+```
+External Attacker / Internal Pod
+    │
+    ├──[Phase 1: Upload .so payload]──────────────────────────────────────
+    │   POST /  (HTTP to NGINX port 80/443)
+    │   Body: ELF shared library > 8KB
+    │   Content-Length: 9999999  ← larger than body → NGINX hangs, FD stays open
+    │   Result: /proc/<nginx_pid>/fd/<n>  ← tmpfile accessible via ProcFS
+    │
+    └──[Phase 2: Admission Controller Injection]──────────────────────────
+        POST https://ingress-nginx-controller:8443/networking.k8s.io/v1/ingresses
+        Body: AdmissionReview JSON with malicious annotation
+              → ssl_engine /proc/<pid>/fd/<n>;  (loads our .so!)
+              → nginx -t executes → .so constructor runs → RCE ✓
+              → ClusterRole secret access → kubectl get secrets --all-namespaces
+```
+
+---
+
+#### CVE Chain Detail
+
+| CVE | Injection Point | Bypass Required | Severity |
+|-----|----------------|-----------------|---------|
+| **CVE-2025-24514** | `auth-url` annotation | URL unsanitized → direct injection | 8.8 |
+| **CVE-2025-1097** | `auth-tls-match-cn` | `CN=...#(\n)` comment escape | 8.8 |
+| **CVE-2025-1098** | Mirror UID field | Non-annotation field, no regex filter | 8.8 |
+| **CVE-2025-1974** | `ssl_engine` directive | Undocumented OpenSSL module, any position | **9.8** |
+
+**Why `ssl_engine` and not `load_module`?**
+
+```
+load_module → must appear at start of config → injection context is mid-config → FAILS
+ssl_engine  → OpenSSL module, works anywhere in config → loads .so at nginx -t → RCE ✓
+```
+
+---
+
+#### What bingo Tests (Skill #62)
+
+```
+1. Kubernetes API Server Detection (VERIFIED)
+   └── /api/v1, /apis, /version → gitVersion extraction
+
+2. Ingress NGINX Fingerprint (VERIFIED)
+   ├── server: nginx header
+   ├── ingress-nginx version regex
+   └── /metrics, /healthz endpoints
+
+3. Version Vulnerable Check (VERIFIED)
+   └── < 1.11.5 or < 1.12.1 → vulnerable flag
+
+4. Admission Controller Exposure (VERIFIED)
+   ├── Port 8443/443 probe with AdmissionReview JSON
+   └── Unauthenticated response → CRITICAL finding
+
+5. Unauthenticated Access Confirmation (VERIFIED)
+   └── Safe AdmissionReview probe → acceptance check
+
+6. Annotation Injection Surface Mapping (VERIFIED/LIKELY)
+   ├── CVE-2025-24514: auth-url annotation
+   ├── CVE-2025-1097: auth-tls-match-cn annotation
+   └── CVE-2025-1098: mirror URI annotation
+
+7. RCE Chain Assessment (LIKELY)
+   └── admission accepts requests + injection surface
+       → client body .so upload + ssl_engine path
+       → ClusterRole all-namespace secret access
+```
+
+---
+
+#### SSRF Pairing
+
+```
+External SSRF vulnerability (any target)
+    → pivot to internal Kubernetes pod network
+    → reach ingress-nginx admission controller (port 8443)
+    → no authentication required
+    → CVE-2025-1974 RCE → cluster takeover
+```
+
+bingo's SSRF scanners (ApacheDruidSSRF #60, SSRF #11, etc.) automatically
+chain with IngressNightmareScanner when internal cluster access is detected.
+
+---
+
+#### Evidence Levels
+
+| Finding | Evidence Level | CVSS |
+|---------|---------------|------|
+| K8s cluster detected | VERIFIED | INFO |
+| Vulnerable version | VERIFIED | 8.8 |
+| Admission controller exposed | VERIFIED | 9.8 |
+| Unauthenticated access | VERIFIED | 9.8 |
+| Annotation injection surface | VERIFIED/LIKELY | 8.8 |
+| Full RCE chain | LIKELY | 9.8 |
+
+---
+
+#### Remediation
+
+| Action | Priority |
+|--------|----------|
+| Upgrade to **ingress-nginx 1.11.5+** (1.11.x branch) | CRITICAL |
+| Upgrade to **ingress-nginx 1.12.1+** (1.12.x branch) | CRITICAL |
+| **NetworkPolicy**: only kube-apiserver → port 8443 | CRITICAL |
+| Disable admission webhook if upgrade impossible | HIGH |
+| **Migrate to Kubernetes Gateway API** (ingress-nginx EOL Nov 2025) | HIGH |
+
+> **Note:** ingress-nginx reached End of Life on **November 12, 2025**.
+> All users must migrate to [Kubernetes Gateway API](https://gateway-api.sigs.k8s.io/)
+> or an alternative controller (Traefik, HAProxy, NGINX Gateway Fabric).
+
+---
+
 ### Prompt Cache Optimizer — Three-Breakpoint Architecture (v2.1)
 
 > **Research basis:**
@@ -2670,7 +2815,7 @@ bingo automatically activates Skill #61 when:
 
 Every time bingo executes a pipeline step, it sends a message to the AI. Without caching,
 the entire static system prompt (≈20,000 characters) and skill definitions (60 skills) are
-re-sent from scratch on **every single step**. For a 27-step pipeline run, this wastes:
+re-sent from scratch on **every single step**. For a 28-step pipeline run, this wastes:
 
 ```
 25 steps × 20,000-char system prompt = 500,000 characters re-sent (every time)
@@ -2688,7 +2833,7 @@ The prompt is divided into three cacheable segments, each with its own cache bre
 | Breakpoint | Content | Change Frequency | Cache Effect |
 |-----------|---------|-----------------|-------------|
 | **BP1** | `UNIVERSAL_PENTEST_CORE` + model-specific instructions | Almost never | Cached for the entire session (day) |
-| **BP2** | Warmup history + 61 skill definitions | Only on new skill releases | Cached until skill list changes |
+| **BP2** | Warmup history + 62 skill definitions | Only on new skill releases | Cached until skill list changes |
 | **BP3** | Conversation history (last 12 turns) | Every turn | Sliding window — previous turns re-cached |
 
 ```
@@ -2788,12 +2933,13 @@ Anthropic cache TTL: 5 minutes (refreshed on each read). DeepSeek: automatic, no
 - **IDOR Phase** — real-world IDOR enumeration, PII detection, and IDOR-based password reset with login verification
 - **Full i18n** — all UI strings (skill module names, commands, evidence labels) in Korean / Chinese / English
 - **9-phase pipeline** — extended from 5 to 9 phases (webshell acquisition, IDOR, login verification added)
-- **61 skill modules** — added ClientSideAuthBypass (#40), ApiDiscoveryFuzzing (#41), MSSQL2025AIExploit (#42), ArubaOsXxeSsrf (#43), IvantiSentryRCE (#44), OAuthChainAttack (#45), CswshRceChain (#46), NextJsCacheSxss (#47), RedisDarkReplica (#48), HtmlAutofillSteal (#49), WebCacheDeception (#50), CloudTokenRecon (#51), AdvancedSQLiExploit (#52), CopyFailLPE (#53), RubyLibAFLFuzz (#54), AICodeSecSurface (#55), CSPTWafBypass (#56), DOMPurifyPPBypass (#57), CloudflareACMEBypass (#58), React2ShellWafBypass (#59), ApacheDruidSSRF (#60), PanOSAuthBypass (#61)
-- **Prompt Cache Optimizer** — Three-Breakpoint Architecture (BP1/BP2/BP3) + Relocation Trick + Frozen Datetime; ~70% API cost reduction for 26-step pipelines
+- **62 skill modules** — added ClientSideAuthBypass (#40), ApiDiscoveryFuzzing (#41), MSSQL2025AIExploit (#42), ArubaOsXxeSsrf (#43), IvantiSentryRCE (#44), OAuthChainAttack (#45), CswshRceChain (#46), NextJsCacheSxss (#47), RedisDarkReplica (#48), HtmlAutofillSteal (#49), WebCacheDeception (#50), CloudTokenRecon (#51), AdvancedSQLiExploit (#52), CopyFailLPE (#53), RubyLibAFLFuzz (#54), AICodeSecSurface (#55), CSPTWafBypass (#56), DOMPurifyPPBypass (#57), CloudflareACMEBypass (#58), React2ShellWafBypass (#59), ApacheDruidSSRF (#60), PanOSAuthBypass (#61), IngressNightmareRCE (#62)
+- **Prompt Cache Optimizer** — Three-Breakpoint Architecture (BP1/BP2/BP3) + Relocation Trick + Frozen Datetime; ~70% API cost reduction for 28-step pipelines
 - **CloudflareACMEBypass (#58)** — ACME HTTP-01 fail-open WAF bypass detection; origin server fingerprinting, LFI, Spring Actuator, header-based attack vector testing via /.well-known/acme-challenge/* path
 - **React2ShellWafBypass (#59)** — CVE-2025-55182 pre-auth RCE attack surface detection + 5 multipart grammar un-equivalence WAF bypass techniques (BP1–BP5, total $170k bounty); safe probe + Burp-ready PoC curl generation
-- **27-step exploit pipeline** — added Phase 27 PanOSAuthBypass (CVE-2025-0108) after Phase 26 ApacheDruidSSRF
-- **61 skill modules** — PanOSAuthBypass (#61): Nginx/Apache double-decode path traversal auth bypass in PAN-OS
+- **28-step exploit pipeline** — added Phase 28 IngressNightmareRCE (CVE-2025-1974) after Phase 27 PanOSAuthBypass
+- **62 skill modules** — IngressNightmareRCE (#62): Kubernetes ingress-nginx unauthenticated admission controller + annotation injection + ssl_engine RCE chain (CVE-2025-1974, CVSS 9.8)
+- **28 pipeline steps** — Phase 28: IngressNightmareScanner K8s/ingress-nginx detection + admission controller exposure + RCE chain assessment
 - Production-stable (`Development Status :: 5 - Production/Stable`)
 
 ### v2.0.x — Beta
