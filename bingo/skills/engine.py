@@ -214,6 +214,17 @@ BUILTIN_MODULES: list[dict] = [
          "1-click 익스플로잇 PoC URL 자동 생성",
          "CSS full-page clickjack PoC 자동 생성 (style-src unsafe-inline 허용 시)",
      ]},
+    {"id": "50", "name": "Web Cache Deception + SameSite Lax 우회", "en": "WebCacheDeception", "ko": "웹캐시기만_SameSite우회",
+     "skills": [
+         "캐시 응답 헤더 자동 탐지 (X-Cache, CF-Cache-Status, Age 등)",
+         "Cache-Control: private 누락 여부 확인",
+         "캐시된 응답에서 JWT/세션토큰/PII 등 민감 데이터 탐지",
+         "MISS→HIT 두 번 요청으로 실제 캐싱 동작 확인",
+         "SameSite=Lax 쿠키 + meta-refresh top-level navigation 우회 검증",
+         "민감 경로 (/profile /settings /dashboard) 별도 캐시 검사",
+         "SameSite Lax 우회 PoC HTML 자동 생성",
+         "Cache buster(cb=UNIQUE)로 피해자 응답 캐싱 체인 시뮬레이션",
+     ]},
     {"id": "46", "name": "CSWSH+EXE노출+로컬WebSocket RCE체인", "en": "CswshRceChain", "ko": "CSWSH_RCE체인탐지",
      "skills": [
          "JS 파일에서 EXE 다운로드 함수 자동 추출",

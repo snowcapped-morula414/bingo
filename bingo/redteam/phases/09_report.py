@@ -490,6 +490,57 @@ def _get_recommendation(vuln_type: str) -> str:
         if finding_type in autofill_recs:
             return autofill_recs[finding_type]
 
+        # Web Cache Deception + SameSite Lax Bypass 권고
+        wcd_recs = {
+            "cache_header_detected": (
+                "1. 민감한 인증 응답 페이지에 Cache-Control: no-store, private 헤더 추가\n"
+                "2. CDN/리버스 프록시 설정에서 인증 필요 경로를 캐시 제외 목록에 등록\n"
+                "3. Vary: Cookie 헤더 추가로 쿠키별 캐시 분리"
+            ),
+            "cacheable_without_private": (
+                "1. [긴급] 인증된 사용자 데이터를 포함하는 모든 응답에 Cache-Control: private, no-store 추가\n"
+                "2. CDN 오리진 Shield 설정에서 Set-Cookie가 있는 응답 캐시 금지\n"
+                "3. /profile /settings /dashboard 등 민감 경로 URL 패턴을 CDN 캐시 제외 규칙에 추가\n"
+                "4. 캐시 정책 감사 자동화 도구 도입 (캐시 헤더 CI 검사)"
+            ),
+            "sensitive_data_in_cache": (
+                "1. [긴급] JWT/세션토큰이 포함된 응답에 Cache-Control: no-store 즉시 적용\n"
+                "2. 토큰 및 PII를 HTTP 응답 Body에 직접 포함하지 않도록 아키텍처 변경\n"
+                "3. 이미 캐시된 응답 즉시 퍼지(purge) 처리\n"
+                "4. 캐시 서버 로그 분석으로 기존 민감 데이터 유출 여부 확인"
+            ),
+            "cache_confirmed_miss_to_hit": (
+                "1. 캐시 MISS→HIT 확인된 경로에 대해 즉시 캐시 무효화(purge)\n"
+                "2. Cache-Control: no-store 추가 후 재확인 테스트\n"
+                "3. CDN WAF에서 의심스러운 cache buster 파라미터(?cb=) 탐지 규칙 추가"
+            ),
+            "samesite_lax_bypass_possible": (
+                "1. SameSite=Strict로 업그레이드 — top-level navigation 포함 모든 교차 사이트 요청 차단\n"
+                "2. CSRF 토큰을 추가 방어 레이어로 적용\n"
+                "3. 핵심 인증 쿠키에 __Host- prefix 적용으로 도메인 스코프 제한\n"
+                "4. 공격자가 top-level navigation을 유도하는 오픈 리다이렉트 차단"
+            ),
+            "wcd_exploitable": (
+                "1. [긴급] 영향받는 모든 경로에 Cache-Control: no-store, private 즉시 적용\n"
+                "2. SameSite=Strict로 쿠키 업그레이드\n"
+                "3. CDN 캐시 전체 퍼지(purge) 후 캐시 키 정책 재설계\n"
+                "4. 보안 헤더 자동 검사를 CI/CD 파이프라인에 통합\n"
+                "5. 정기적인 Cache Deception 자동 스캔 도입"
+            ),
+            "wcd_likely": (
+                "1. 캐시 가능 경로에서 인증 세션으로 직접 테스트하여 민감 데이터 노출 확인\n"
+                "2. 캐시 설정 전수 감사 및 Cache-Control 헤더 일관성 검토\n"
+                "3. CDN 벤더의 캐시 설정 모범 사례 문서 참조하여 재설정"
+            ),
+            "sensitive_path_cacheable": (
+                "1. 해당 경로(/profile /settings 등)를 CDN 캐시 제외 목록에 추가\n"
+                "2. 경로별 Cache-Control: private 적용 여부 전수 점검\n"
+                "3. 민감 경로 응답에서 JWT/토큰을 응답 Body 대신 HttpOnly 쿠키로 처리"
+            ),
+        }
+        if finding_type in wcd_recs:
+            return wcd_recs[finding_type]
+
         # OAuth Chain Attack 권고
         "email_trust_chain": (
             "1. 이메일 인증 없이 계정 생성 즉시 차단 — 검증 전 로그인/OAuth 토큰 발급 금지\n"
