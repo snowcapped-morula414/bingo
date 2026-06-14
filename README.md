@@ -2153,6 +2153,127 @@ triggers = {
 | Cookie XSS | HIGH | `HttpOnly` on all cookies; use `textContent` not `innerHTML` |
 | Auxclick clickjacking | MEDIUM | `X-Frame-Options: DENY` + `CSP: frame-ancestors 'none'` |
 
+### Cloudflare ACME WAF Bypass — CloudflareACMEBypass (v2.1)
+
+> **Research basis:**
+> FearsOff Security — Kirill Firsov
+> "Cloudflare Zero-day: Accessing Any Host Globally"
+> https://fearsoff.org/research/cloudflare-acme
+>
+> Cloudflare Official Post-mortem (January 2026):
+> https://blog.cloudflare.com/acme-path-vulnerability/
+>
+> **Module:** `bingo/tools/cloudflare_acme_bypass.py` — Skill #58
+
+---
+
+#### The Vulnerability: ACME HTTP-01 "Fail-Open" Logic
+
+Cloudflare's edge network implements ACME (Automatic Certificate Management Environment) support,
+temporarily **disabling WAF protections** on the path `/.well-known/acme-challenge/{token}` to
+allow Certificate Authorities to validate domain ownership without interference.
+
+The bug: Cloudflare failed to verify whether the token in the request matched an **active ACME
+challenge for that specific hostname**. If the token belonged to a different zone — or was
+completely arbitrary — Cloudflare **still disabled WAF and forwarded the request directly to the
+origin server**.
+
+```
+Normal request → /.well-known/test
+                 → Cloudflare WAF enforced ✅ → 403 block page
+
+Bypass request → /.well-known/acme-challenge/FAKE_TOKEN
+                 → WAF DISABLED ❌ → Direct origin server contact
+```
+
+- **Reported:** October 9, 2025 (HackerOne Bug Bounty)
+- **Validated:** October 13, 2025
+- **Patched:** October 27, 2025
+- **Disclosed:** January 19, 2026
+- **Researcher:** Kirill Firsov (FearsOff Security)
+
+---
+
+#### Impact: What an Attacker Could Do via the Bypass Path
+
+| Attack | Description | Impact |
+|--------|-------------|--------|
+| **Origin IP Discovery** | Real server responds without CF obfuscation | HIGH |
+| **IP Allowlist Bypass** | CF IP-block rules become ineffective | HIGH |
+| **LFI (PHP apps)** | `/../../../etc/passwd` via ACME prefix | CRITICAL |
+| **Spring Actuator Exposure** | `/actuator/env` returns env variables | HIGH |
+| **SSRF** | `X-Forwarded-For: 127.0.0.1` reaches origin | HIGH |
+| **Cache Poisoning** | `X-Forwarded-Host: evil.com` poisons cache | HIGH |
+| **Method Override** | `X-HTTP-Method-Override: DELETE` bypasses checks | MEDIUM |
+| **Debug Toggle** | Custom debug headers bypass WAF guard | MEDIUM |
+| **Next.js SSR Leak** | Internal SSR details exposed | MEDIUM |
+
+---
+
+#### What bingo Tests
+
+```python
+# Step 1: Confirm Cloudflare presence
+GET https://target.com/  →  check CF-Ray, server: cloudflare
+
+# Step 2: Control test (should be blocked)
+GET https://target.com/bingo-waf-control-test  →  expect 403
+
+# Step 3: ACME bypass test (core check)
+GET https://target.com/.well-known/acme-challenge/bingo-acme-test-xBz9kPqR7wN2mLcV
+ →  if origin responds (non-CF server header / no CF-Ray) → BYPASS CONFIRMED
+
+# Step 4: Header attack vectors (if bypass confirmed)
+GET .../acme-challenge/TOKEN  -H "X-Forwarded-For: 127.0.0.1"
+GET .../acme-challenge/TOKEN  -H "X-Original-URL: /admin"
+GET .../acme-challenge/TOKEN  -H "X-Forwarded-Host: evil.example.com"
+
+# Step 5: LFI test
+GET .../acme-challenge/TOKEN/../../../etc/passwd
+
+# Step 6: Spring Actuator
+GET .../acme-challenge/TOKEN/actuator/env
+```
+
+---
+
+#### Evidence Levels
+
+| Finding | Evidence Level | Description |
+|---------|---------------|-------------|
+| Origin server reached | `VERIFIED` | CF-Ray absent + non-CF server header |
+| WAF bypass + header attacks | `LIKELY` | Bypass confirmed, headers sent but response ambiguous |
+| Spring Actuator / LFI | `INFERRED` | Path tested but content not definitively matched |
+
+---
+
+#### Remediation
+
+```nginx
+# 1. Restrict origin to Cloudflare IPs only
+# https://www.cloudflare.com/ips/
+allow 103.21.244.0/22;
+allow 103.22.200.0/22;
+# ... (full list)
+deny all;
+```
+
+```
+# 2. Cloudflare Dashboard → SSL/TLS → Origin Server → Authenticated Origin Pulls
+# Enable mTLS so only genuine CF edge can contact origin
+
+# 3. Verify patch: CF-Ray header must be present on ALL paths including
+#    /.well-known/acme-challenge/* after October 27, 2025 fix
+```
+
+| Check | Before Patch | After Patch |
+|-------|-------------|-------------|
+| Normal path `/test` | WAF enforced ✅ | WAF enforced ✅ |
+| ACME path (valid token, CF-managed) | WAF bypassed (intended) ✅ | WAF bypassed (intended) ✅ |
+| ACME path (fake/wrong zone token) | **WAF bypassed ❌** | WAF enforced ✅ |
+
+---
+
 ### Prompt Cache Optimizer — Three-Breakpoint Architecture (v2.1)
 
 > **Research basis:**
@@ -2165,11 +2286,11 @@ triggers = {
 #### Background: The Repetition Waste Problem
 
 Every time bingo executes a pipeline step, it sends a message to the AI. Without caching,
-the entire static system prompt (≈20,000 characters) and skill definitions (57 skills) are
-re-sent from scratch on **every single step**. For a 23-step pipeline run, this wastes:
+the entire static system prompt (≈20,000 characters) and skill definitions (58 skills) are
+re-sent from scratch on **every single step**. For a 24-step pipeline run, this wastes:
 
 ```
-23 steps × 20,000-char system prompt = 460,000 characters re-sent (every time)
+24 steps × 20,000-char system prompt = 480,000 characters re-sent (every time)
 ```
 
 The Prompt Cache Optimizer eliminates this repetition using three techniques directly adapted
@@ -2184,7 +2305,7 @@ The prompt is divided into three cacheable segments, each with its own cache bre
 | Breakpoint | Content | Change Frequency | Cache Effect |
 |-----------|---------|-----------------|-------------|
 | **BP1** | `UNIVERSAL_PENTEST_CORE` + model-specific instructions | Almost never | Cached for the entire session (day) |
-| **BP2** | Warmup history + 57 skill definitions | Only on new skill releases | Cached until skill list changes |
+| **BP2** | Warmup history + 58 skill definitions | Only on new skill releases | Cached until skill list changes |
 | **BP3** | Conversation history (last 12 turns) | Every turn | Sliding window — previous turns re-cached |
 
 ```
@@ -2284,8 +2405,9 @@ Anthropic cache TTL: 5 minutes (refreshed on each read). DeepSeek: automatic, no
 - **IDOR Phase** — real-world IDOR enumeration, PII detection, and IDOR-based password reset with login verification
 - **Full i18n** — all UI strings (skill module names, commands, evidence labels) in Korean / Chinese / English
 - **9-phase pipeline** — extended from 5 to 9 phases (webshell acquisition, IDOR, login verification added)
-- **57 skill modules** — added ClientSideAuthBypass (#40), ApiDiscoveryFuzzing (#41), MSSQL2025AIExploit (#42), ArubaOsXxeSsrf (#43), IvantiSentryRCE (#44), OAuthChainAttack (#45), CswshRceChain (#46), NextJsCacheSxss (#47), RedisDarkReplica (#48), HtmlAutofillSteal (#49), WebCacheDeception (#50), CloudTokenRecon (#51), AdvancedSQLiExploit (#52), CopyFailLPE (#53), RubyLibAFLFuzz (#54), AICodeSecSurface (#55), CSPTWafBypass (#56), DOMPurifyPPBypass (#57)
-- **Prompt Cache Optimizer** — Three-Breakpoint Architecture (BP1/BP2/BP3) + Relocation Trick + Frozen Datetime; ~70% API cost reduction for 20+ step pipelines
+- **58 skill modules** — added ClientSideAuthBypass (#40), ApiDiscoveryFuzzing (#41), MSSQL2025AIExploit (#42), ArubaOsXxeSsrf (#43), IvantiSentryRCE (#44), OAuthChainAttack (#45), CswshRceChain (#46), NextJsCacheSxss (#47), RedisDarkReplica (#48), HtmlAutofillSteal (#49), WebCacheDeception (#50), CloudTokenRecon (#51), AdvancedSQLiExploit (#52), CopyFailLPE (#53), RubyLibAFLFuzz (#54), AICodeSecSurface (#55), CSPTWafBypass (#56), DOMPurifyPPBypass (#57), CloudflareACMEBypass (#58)
+- **Prompt Cache Optimizer** — Three-Breakpoint Architecture (BP1/BP2/BP3) + Relocation Trick + Frozen Datetime; ~70% API cost reduction for 24-step pipelines
+- **CloudflareACMEBypass (#58)** — ACME HTTP-01 fail-open WAF bypass detection; origin server fingerprinting, LFI, Spring Actuator, header-based attack vector testing via /.well-known/acme-challenge/* path
 - Production-stable (`Development Status :: 5 - Production/Stable`)
 
 ### v2.0.x — Beta
