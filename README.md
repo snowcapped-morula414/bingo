@@ -155,6 +155,43 @@ Enter a number to continue automatically — no need to think about what to do n
 
 ---
 
+### API Discovery & AI-Powered Fuzzing (v2.1)
+
+Inspired by Brutecat's research ("Hacking Google with AI for $500,000"), bingo automatically discovers API documentation and fuzzes every endpoint using AI-guided parameter testing.
+
+**Step 1 — Auto-discover API docs:**
+
+bingo probes 30+ common paths to find machine-readable API specifications:
+
+| Doc type | Paths probed |
+|----------|-------------|
+| OpenAPI / Swagger | `/swagger.json`, `/openapi.json`, `/v1/api-docs`, `/v3/api-docs`, ... |
+| Google Discovery | `/$discovery/rest`, `/discovery/v1/apis` |
+| GraphQL | `/graphql`, `/graphiql`, `/api/graphql` |
+| WordPress | `/wp-json` |
+| Spring Boot | `/actuator/mappings` |
+
+**Step 2 — AI auto-fuzzes every endpoint:**
+
+Once endpoints are found, bingo tests them automatically:
+- **Unauthenticated access** — calls every API with no cookies or tokens; `200 OK` = confirmed bypass
+- **Parameter fuzzing** — injects IDOR, SQLi, SSTI, and path traversal payloads into query parameters
+- **Sensitive keyword detection** — flags responses containing `password`, `token`, `traceback`, SQL error messages, etc.
+- **500 error detection** — server errors triggered by payloads indicate possible injection points
+
+**Evidence labeling:**
+```
+VERIFIED  = real HTTP 200 response with sensitive data confirmed
+LIKELY    = suspicious response pattern (500 error, auth keyword)
+INFERRED  = structural pattern match only
+```
+
+**AI auto-trigger conditions:**
+- Always runs (low cost, high discovery value)
+- Escalates to fuzzing only when endpoints are actually found
+
+---
+
 ### ACPV — Client-Side Authentication Bypass (v2.1)
 
 bingo automatically detects and exploits client-side authentication vulnerabilities — no password needed.
@@ -269,9 +306,9 @@ Full AI responses, commands, and results are logged in real time.
 
 ### Skill Engine
 
-220+ red team skills across 40 modules — automatically injected into AI context based on your input. Use `/skill <keyword>` to search.
+220+ red team skills across 41 modules — automatically injected into AI context based on your input. Use `/skill <keyword>` to search.
 
-**Modules include:** Reconnaissance, Exploitation, Privilege Escalation, Post-Exploitation, Lateral Movement, Persistence, Cloud Security, Mobile Security, LLM/AI Security, Blockchain/Web3, Ransomware Defense, **Client-Side Auth Bypass (ACPV)**, and more.
+**Modules include:** Reconnaissance, Exploitation, Privilege Escalation, Post-Exploitation, Lateral Movement, Persistence, Cloud Security, Mobile Security, LLM/AI Security, Blockchain/Web3, Ransomware Defense, **Client-Side Auth Bypass (ACPV)**, **API Discovery & AI Fuzzing**, and more.
 
 ---
 
@@ -435,7 +472,7 @@ bingo/
 - **IDOR Phase** — real-world IDOR enumeration, PII detection, and IDOR-based password reset with login verification
 - **Full i18n** — all UI strings (skill module names, commands, evidence labels) in Korean / Chinese / English
 - **9-phase pipeline** — extended from 5 to 9 phases (webshell acquisition, IDOR, login verification added)
-- **40 skill modules** — added ClientSideAuthBypass (#40)
+- **41 skill modules** — added ClientSideAuthBypass (#40), ApiDiscoveryFuzzing (#41)
 - Production-stable (`Development Status :: 5 - Production/Stable`)
 
 ### v2.0.x — Beta

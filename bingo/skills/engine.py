@@ -140,6 +140,17 @@ BUILTIN_MODULES: list[dict] = [
          "authRequired/isLoggedIn 플래그 분석",
          "JWT 위조 인증 우회 PoC",
      ]},
+    {"id": "41", "name": "API发现与智能模糊测试", "en": "ApiDiscoveryFuzzing", "ko": "API탐지/AI퍼징",
+     "skills": [
+         "Swagger/OpenAPI 문서 자동 탐지",
+         "Google Discovery Document 스캔",
+         "WordPress REST API 열거",
+         "GraphQL 엔드포인트 탐지",
+         "무인증 API 엔드포인트 자동 테스트",
+         "AI 파라미터 자동 퍼징 (IDOR/SQLi/SSTI)",
+         "민감 응답 키워드 자동 분류",
+         "500 오류 기반 인젝션 탐지",
+     ]},
 ]
 
 
