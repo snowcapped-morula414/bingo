@@ -1412,6 +1412,29 @@ _STRINGS.update({
     "druid_remediation":        {"ko": "🔧 수정: Apache Druid 31.0.2+/32.0.1+ 업그레이드 + 관리 콘솔 외부 차단 + IMDSv2 강제 + 프록시 대상 URL 화이트리스트",
                                   "zh": "🔧 修复: 升级到Apache Druid 31.0.2+/32.0.1+ + 阻止管理控制台外部访问 + 强制IMDSv2 + 代理目标URL白名单",
                                   "en": "🔧 Fix: Upgrade Apache Druid to 31.0.2+/32.0.1+ + block management console externally + enforce IMDSv2 + whitelist proxy target URLs"},
+
+    # ── PAN-OS Auth Bypass — Skill #61 ─────────────────────────────────────────
+    "panos_init":               {"ko": "🔍 PAN-OS 인증 우회 스캐너 시작 — Nginx/Apache 경로 혼동 CVE-2025-0108 테스트",
+                                  "zh": "🔍 PAN-OS认证绕过扫描器启动 — 测试Nginx/Apache路径混淆CVE-2025-0108",
+                                  "en": "🔍 PAN-OS Auth Bypass Scanner started — testing Nginx/Apache path confusion CVE-2025-0108"},
+    "panos_detected":           {"ko": "🔥 Palo Alto PAN-OS 관리 인터페이스 감지됨{version}: {indicators} — CVE-2025-0108 공격 표면 확인",
+                                  "zh": "🔥 检测到Palo Alto PAN-OS管理界面{version}: {indicators} — CVE-2025-0108攻击面确认",
+                                  "en": "🔥 Palo Alto PAN-OS management interface detected{version}: {indicators} — CVE-2025-0108 attack surface confirmed"},
+    "panos_bypass_confirmed":   {"ko": "🚨 CVE-2025-0108 인증 우회 확인됨! {php_file} 인증 없이 실행 — /unauth/%252e%252e/ 이중 디코딩 트래버설 성공",
+                                  "zh": "🚨 CVE-2025-0108认证绕过已确认! {php_file}无需认证即可执行 — /unauth/%252e%252e/双重解码路径遍历成功",
+                                  "en": "🚨 CVE-2025-0108 Auth Bypass CONFIRMED! {php_file} executed unauthenticated — double-decode traversal /unauth/%252e%252e/ succeeded"},
+    "panos_rce_chain":          {"ko": "💀 CVE-2025-0108 + CVE-2024-9474 RCE 체인 가능! 인증 우회 → 권한 상승 → root 실행",
+                                  "zh": "💀 CVE-2025-0108 + CVE-2024-9474 RCE链可行! 认证绕过 → 权限提升 → root执行",
+                                  "en": "💀 CVE-2025-0108 + CVE-2024-9474 RCE chain possible! Auth bypass → privilege escalation → root execution"},
+    "panos_not_found":          {"ko": "ℹ️  PAN-OS 관리 인터페이스 미감지 — CVE-2025-0108 공격 표면 없음",
+                                  "zh": "ℹ️  未检测到PAN-OS管理界面 — 无CVE-2025-0108攻击面",
+                                  "en": "ℹ️  PAN-OS management interface not detected — no CVE-2025-0108 attack surface"},
+    "panos_patched":            {"ko": "✅ PAN-OS 감지됐으나 CVE-2025-0108 우회 차단됨 — 패치 적용됐거나 관리 인터페이스 접근 제한됨",
+                                  "zh": "✅ 检测到PAN-OS但CVE-2025-0108绕过被阻断 — 已修补或管理界面访问受限",
+                                  "en": "✅ PAN-OS detected but CVE-2025-0108 bypass blocked — patched or management interface access restricted"},
+    "panos_remediation":        {"ko": "🔧 수정: PAN-OS 업그레이드 10.2.14+/11.0.7+/11.2.5+ + 관리 인터페이스 IP 화이트리스트 + 인터넷 노출 즉시 차단",
+                                  "zh": "🔧 修复: 升级PAN-OS至10.2.14+/11.0.7+/11.2.5+ + 管理界面IP白名单 + 立即阻止互联网暴露",
+                                  "en": "🔧 Fix: Upgrade PAN-OS to 10.2.14+/11.0.7+/11.2.5+ + whitelist management interface IPs + block internet exposure immediately"},
 })
 
 

