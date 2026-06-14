@@ -737,6 +737,97 @@ http://target.com/?html=
 
 ---
 
+### Copy Fail LPE — CVE-2026-31431 Linux Kernel Local Privilege Escalation + Container Escape (v2.1)
+
+> **Research basis:**  
+> Xint Code Research Team — Juno Im (@junorouse) & Taeyang Lee of Theori  
+> ["Copy Fail: 732 Bytes to Root on Every Major Linux Distribution"](https://xint.io/blog/copy-fail-linux-distributions)  
+> Published: April 29, 2026 | CVE assigned: April 22, 2026  
+> **Skill module:** `CopyFailLPE` (id: 53)
+
+#### What the vulnerability is
+
+A **logic bug in the Linux kernel's `authencesn` cryptographic template** allows any unprivileged local user to perform a **controlled 4-byte write into the kernel page cache of any readable file** — including SUID binaries like `/usr/bin/su`. By chaining four write primitives of 4 bytes each, an attacker overwrites the in-memory copy of a setuid binary with shellcode. When the binary is next executed, the page cache version runs: **instant root** without file-system traces.
+
+Three commits over a decade created the conditions:
+
+| Year | Commit | Effect |
+|------|--------|--------|
+| 2011 | authencesn added | uses dst scatterlist as ESN scratch space |
+| 2015 | AF_ALG AEAD interface | assoclen+cryptlen byte offset past output |
+| 2017 | algif_aead in-place optimization | `req->src = req->dst` — page-cache pages now writable |
+
+**Attack chain (732 bytes of Python 3.10+):**
+```
+AF_ALG socket (authencesn) → splice() target SUID binary into TX scatterlist
+→ sendmsg() AAD bytes[4:7] = desired 4-byte shellcode chunk (seqno_lo)
+→ recvmsg() → HMAC fails, 4-byte write persists in page cache
+→ Repeat per chunk → execve("/usr/bin/su") → root
+```
+
+**Why it's stealthy:**
+- On-disk file unchanged — SHA256/MD5 file integrity checks **miss** the modification
+- Page cache is **host-wide** — works across container and K8s boundaries
+- No race condition, no recompile, no crash-prone timing window
+
+#### Affected systems
+
+| Distribution | Vulnerable kernel | Patched kernel |
+|---|---|---|
+| Ubuntu (tested) | 6.17.0-1007-aws | ≥ 6.17.0-1008 |
+| Amazon Linux 2023 | 6.18.8-9 | ≥ 6.18.8-10 |
+| RHEL 10.1 | 6.12.0-124 | ≥ 6.12.0-125 |
+| SUSE 16 | 6.12.0-160000 | ≥ 6.12.0-160001 |
+
+Broad vulnerable range: **Linux 4.9 (2017 in-place optimization) through distro patch date (2026-04-01)**.
+
+#### What bingo detects
+
+| Detection method | Evidence level |
+|---|---|
+| Kernel version leaked in HTTP headers (`Server`, `X-Powered-By`) | `LIKELY` |
+| `/proc/version` direct path exposure | `VERIFIED` |
+| Webshell `uname -r` output in vulnerable range | `VERIFIED` |
+| `lsmod \| grep algif_aead` confirms module loaded | `VERIFIED` |
+| Python 3.10+ available (PoC can run directly) | `VERIFIED` |
+| Container/K8s cgroup markers → host escape path | `VERIFIED` |
+| Linux OS hint in headers (no version) | `AI_ANALYSIS` |
+
+#### AI auto-trigger conditions
+
+bingo activates `CopyFailLPE` when **any** of:
+- RCE / webshell was confirmed in earlier phase (`result.webshell_uploaded = True`)
+- `raw_findings` contains `rce`, `webshell`, `upload`, `command_exec`, or `lfi`
+- HTTP response headers contain Linux distribution signatures
+- Any header value matches `Linux/x.y` kernel version pattern
+- URL path suggests Linux-hosted CMS (gnuboard, WordPress, Drupal, XE, Rhymix)
+
+#### Container escape (Part 2)
+
+Because the Linux page cache is **shared across the host**, a webshell inside a Docker container or K8s pod can run the PoC to overwrite a SUID binary on the **host** node, then escalate to host root outside the container boundary. bingo flags `container_escape_possible = True` when both `kernel_vulnerable` and `container_environment` are `True`.
+
+#### Quick remediation
+
+```bash
+# Immediate: disable algif_aead module
+sudo rmmod algif_aead
+echo 'install algif_aead /bin/false' | sudo tee /etc/modprobe.d/disable-algif-aead.conf
+sudo dracut -f  # regenerate initramfs
+
+# Audit AF_ALG socket usage
+ss -xlp | grep AF_ALG
+auditctl -a always,exit -F arch=b64 -S socket -F a0=38 -k af_alg_socket_call
+
+# Permanent fix: patch kernel (distro-specific)
+apt-get upgrade linux-image-$(uname -r)   # Ubuntu
+yum update kernel                          # Amazon Linux / RHEL
+zypper patch                               # SUSE
+```
+
+**Note:** On-disk integrity tools (AIDE, Tripwire, sha256sum) will **not** detect this attack because only the page cache is modified. Runtime memory integrity monitoring or kernel patching is required.
+
+---
+
 ### Advanced SQLi Exploit — EXTRACTVALUE Error-Based + Second-Order SQLi (v2.1)
 
 > **Research basis:**  
@@ -1382,7 +1473,7 @@ bingo/
 - **IDOR Phase** — real-world IDOR enumeration, PII detection, and IDOR-based password reset with login verification
 - **Full i18n** — all UI strings (skill module names, commands, evidence labels) in Korean / Chinese / English
 - **9-phase pipeline** — extended from 5 to 9 phases (webshell acquisition, IDOR, login verification added)
-- **52 skill modules** — added ClientSideAuthBypass (#40), ApiDiscoveryFuzzing (#41), MSSQL2025AIExploit (#42), ArubaOsXxeSsrf (#43), IvantiSentryRCE (#44), OAuthChainAttack (#45), CswshRceChain (#46), NextJsCacheSxss (#47), RedisDarkReplica (#48), HtmlAutofillSteal (#49), WebCacheDeception (#50), CloudTokenRecon (#51), AdvancedSQLiExploit (#52)
+- **53 skill modules** — added ClientSideAuthBypass (#40), ApiDiscoveryFuzzing (#41), MSSQL2025AIExploit (#42), ArubaOsXxeSsrf (#43), IvantiSentryRCE (#44), OAuthChainAttack (#45), CswshRceChain (#46), NextJsCacheSxss (#47), RedisDarkReplica (#48), HtmlAutofillSteal (#49), WebCacheDeception (#50), CloudTokenRecon (#51), AdvancedSQLiExploit (#52), CopyFailLPE (#53)
 - Production-stable (`Development Status :: 5 - Production/Stable`)
 
 ### v2.0.x — Beta

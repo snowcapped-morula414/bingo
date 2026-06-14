@@ -665,6 +665,59 @@ def _get_recommendation(vuln_type: str) -> str:
     if finding_type in asqli_recs:
         return asqli_recs[finding_type]
 
+    # Copy Fail CVE-2026-31431 Kernel LPE + Container Escape 권고
+    copyfail_recs = {
+        "kernel_version_vuln": (
+            "1. 즉시 커널 업데이트: 각 배포판 보안 패치 적용 (2026-04-01 이후 릴리즈)\n"
+            "   - Ubuntu: apt-get update && apt-get upgrade linux-image-$(uname -r)\n"
+            "   - Amazon Linux: yum update kernel\n"
+            "   - RHEL/CentOS: yum update kernel\n"
+            "   - SUSE: zypper patch\n"
+            "2. 즉각적 임시 완화: algif_aead 모듈 비활성화\n"
+            "   sudo rmmod algif_aead\n"
+            "   echo 'install algif_aead /bin/false' | sudo tee /etc/modprobe.d/disable-algif-aead.conf\n"
+            "   sudo dracut -f  # initramfs 재생성\n"
+            "3. AF_ALG 소켓 접근 제한: seccomp-bpf 정책으로 AF_ALG(38) 소켓 생성 차단\n"
+            "4. SUID 바이너리 최소화: chmod u-s /usr/bin/su /usr/bin/sudo (필요시 재검토)\n"
+            "5. 온디스크 무결성 검사로는 감지 불가 — AIDE/Tripwire 실행 중 페이지 캐시 모니터링 추가"
+        ),
+        "algif_aead_loaded": (
+            "1. 즉시 algif_aead 모듈 언로드: sudo rmmod algif_aead\n"
+            "2. 영구 비활성화: echo 'install algif_aead /bin/false' | sudo tee "
+            "/etc/modprobe.d/disable-algif-aead.conf\n"
+            "3. AF_ALG 소켓(PF_ALG=38) 사용 여부 감사: ss -xlp | grep AF_ALG\n"
+            "4. 커널 패치 적용 후 모듈 영구 비활성화 해제 여부 재검토\n"
+            "5. 런타임 감지: auditctl -a always,exit -F arch=b64 -S socket "
+            "-F a0=38 -k af_alg_socket_call"
+        ),
+        "container_escape_path": (
+            "1. 호스트 커널 즉시 패치 — 페이지 캐시는 호스트 전역 공유이므로 컨테이너 내부 패치 불가\n"
+            "2. K8s Pod Security Policy/Admission: privileged=false, "
+            "allowPrivilegeEscalation=false 강제\n"
+            "3. Seccomp 프로파일 강화: RuntimeDefault 또는 socket syscall AF_ALG 차단 커스텀 프로파일\n"
+            "4. AppArmor/SELinux 프로파일로 AF_ALG 소켓 생성 제한\n"
+            "5. 컨테이너 런타임 업데이트 (gVisor/Kata Containers 고려 — 완전 격리된 커널 사용)\n"
+            "6. Node-level: algif_aead 모듈 언로드 DaemonSet 배포"
+        ),
+        "kernel_banner_leak": (
+            "1. HTTP 응답 헤더에서 커널/OS 버전 정보 제거\n"
+            "   - Apache: ServerTokens Prod / ServerSignature Off\n"
+            "   - Nginx: server_tokens off\n"
+            "2. /proc/version, /proc/cpuinfo 등 직접 접근 경로 웹 서버에서 차단\n"
+            "3. X-Powered-By 헤더 제거 (PHP: expose_php=Off)\n"
+            "4. 정보 노출 자체가 CVE-2026-31431 공격 우선순위 지정에 활용됨 — 조속히 제거"
+        ),
+        "python310_available": (
+            "1. 웹쉘/RCE 차단이 우선: 파일 업로드 필터링 강화, WAF 적용\n"
+            "2. Python 3.10+ 실행 환경에서 os.splice 사용 제한 (불필요한 시스템 콜 차단)\n"
+            "3. 서버 Python 실행 권한 최소화: www-data 계정 제한, chroot/namespace 격리\n"
+            "4. 해당 취약점의 PoC는 Python 3.10+ 전용 — Python 버전 다운그레이드는 임시 완화책\n"
+            "5. 근본 해결: 커널 패치 (algif_aead 수정)"
+        ),
+    }
+    if finding_type in copyfail_recs:
+        return copyfail_recs[finding_type]
+
     return recs.get(vuln_type, "해당 취약점에 맞는 보안 패치 적용")
 
 

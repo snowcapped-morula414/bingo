@@ -247,6 +247,17 @@ BUILTIN_MODULES: list[dict] = [
          "한국 CMS(그누보드/영카트) board.php/item.php 파라미터 자동 퍼징",
          "AI 판단: SQLi 확인 환경 → EXTRACTVALUE 고급 모드 자동 전환",
      ]},
+    {"id": "53", "name": "CVE-2026-31431 Copy Fail 커널 LPE + 컨테이너 탈출 탐지", "en": "CopyFailLPE", "ko": "CopyFail커널LPE탐지",
+     "skills": [
+         "HTTP 헤더에서 Linux 커널 버전 leak 탐지 (Server/X-Powered-By 헤더 파싱)",
+         "/proc/version 직접 노출 여부 확인 (웹 서버 설정 오류)",
+         "웹쉘 실행 시 uname -r / lsmod algif_aead / python3 버전 자동 점검",
+         "algif_aead 커널 모듈 로드 확인 → 732바이트 Python PoC 실행 가능성 평가",
+         "컨테이너/K8s 환경 감지 → 페이지 캐시 호스트 전역 공유 → 컨테이너 탈출 경로 평가",
+         "취약 커널 범위 판정: Linux 4.9+ ~ 2026-04-01 패치 이전 (Ubuntu/RHEL/Amazon/SUSE 버전 매핑)",
+         "온디스크 파일 무결성 검사 우회 특성 탐지 (페이지 캐시 수정, SHA256 기반 탐지 불가)",
+         "AI 판단: 리눅스 서버 + post-RCE 컨텍스트 → 자동 활성화",
+     ]},
     {"id": "46", "name": "CSWSH+EXE노출+로컬WebSocket RCE체인", "en": "CswshRceChain", "ko": "CSWSH_RCE체인탐지",
      "skills": [
          "JS 파일에서 EXE 다운로드 함수 자동 추출",
