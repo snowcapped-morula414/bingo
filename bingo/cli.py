@@ -305,7 +305,7 @@ def main() -> None:
         return
 
     if args and args[0] == "--version":
-        console.print("[#00ff41]bingo[/] v2.0.0 — Red Team Edition")
+        console.print("[#00ff41]bingo[/] v2.1.0 — Official Release")
         return
 
     # ── 설정 로드 / 첫 실행 온보딩 ───────────────────────────────

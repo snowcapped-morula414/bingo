@@ -2,15 +2,30 @@
 
 <img src="assets/logo.png" width="180" alt="bingo logo"/>
 
-**Hacker-style AI Red Team Terminal — Multi-Model · Multi-Language · Full Automation**
+# bingo
 
-[![Python](https://img.shields.io/badge/python-3.10%2B-green?logo=python&logoColor=white)](https://python.org)
+**AI-Powered Red Team Terminal**
+
+[![Version](https://img.shields.io/badge/version-2.1.0-brightgreen?logo=github)](https://github.com/bingook/bingo/releases)
+[![Python](https://img.shields.io/badge/python-3.10%2B-blue?logo=python&logoColor=white)](https://python.org)
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
-[![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-green)](https://github.com/bingook/bingo)
+[![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey)](https://github.com/bingook/bingo)
+[![Status](https://img.shields.io/badge/status-Official%20Release-brightgreen)](https://github.com/bingook/bingo)
 
 *DeepSeek · Claude · GPT · GLM · Qwen · Ollama · Custom*
 
+> **v2.1.0 — Official Release**  
+> Previous versions (≤ 2.0.x) were test/beta releases. v2.1.0 is the first stable, production-ready version.
+
 </div>
+
+---
+
+## What is bingo?
+
+bingo is a hacker-style AI terminal that automates real penetration testing workflows. You type a target URL, and bingo runs a full red team pipeline — WAF detection, vulnerability scanning, SQL injection, file upload exploitation, IDOR enumeration, hash cracking, and auto-generated reports — all powered by the AI model of your choice.
+
+**Zero-Hallucination System** (new in v2.1): Every finding is labeled with an evidence level (`VERIFIED` / `LIKELY` / `INFERRED`). Nothing is discarded — unverified results are flagged separately rather than silently dropped.
 
 ---
 
@@ -22,7 +37,7 @@
 curl -fsSL https://raw.githubusercontent.com/bingook/bingo/main/install.sh | bash
 ```
 
-Or clone and install:
+Or clone manually:
 
 ```bash
 git clone https://github.com/bingook/bingo.git
@@ -32,21 +47,21 @@ bash install.sh
 
 ### Windows
 
-> ⚠️ **반드시 PowerShell에서 실행** (CMD 불가)
-> 시작 → `PowerShell` 검색 → **우클릭 → 관리자 권한으로 실행**
+> ⚠️ **Run in PowerShell** (not CMD).  
+> Start → search `PowerShell` → **Right-click → Run as Administrator**
 
-**방법 1 — 자동 설치 (권장):**
+**Option 1 — Auto-install (recommended):**
 ```powershell
 irm https://raw.githubusercontent.com/bingook/bingo/main/install.ps1 | iex
 ```
 
-**방법 2 — 실행 정책 오류 시:**
+**Option 2 — If execution policy error:**
 ```powershell
 Set-ExecutionPolicy RemoteSigned -Scope CurrentUser -Force
 irm https://raw.githubusercontent.com/bingook/bingo/main/install.ps1 | iex
 ```
 
-**방법 3 — 수동 설치 (스크립트 없이, 가장 확실):**
+**Option 3 — Manual install (most reliable):**
 ```powershell
 git clone https://github.com/bingook/bingo.git $env:USERPROFILE\bingo
 cd $env:USERPROFILE\bingo
@@ -54,7 +69,7 @@ python -m pip install -e .
 python -m bingo
 ```
 
-**방법 4 — git 없을 때:**
+**Option 4 — Without git:**
 ```powershell
 Invoke-WebRequest "https://github.com/bingook/bingo/archive/main.zip" -OutFile "$env:TEMP\bingo.zip" -UseBasicParsing
 Expand-Archive "$env:TEMP\bingo.zip" "$env:USERPROFILE" -Force
@@ -68,28 +83,43 @@ python -m bingo
 
 ---
 
-## Usage
+## Quick Start
 
 ```bash
-bingo                  # Start interactive chat
-bingo scan <url>       # Full automated red team scan
-bingo --reset          # Reset settings
-bingo --version        # Show version
+bingo                      # Launch interactive terminal
+bingo scan https://target.com  # Full automated red team scan
+bingo --version            # Show version
+bingo --reset              # Reset configuration
 ```
 
-On first run: **select language → enter AI model API key → start chatting**.  
-Settings are saved automatically.
+On first launch: **select language → enter AI model API key → start hacking**.
 
 ---
 
 ## Core Features
 
+### Zero-Hallucination System (v2.1)
+
+Every finding produced by bingo is assigned an evidence level:
+
+| Level | Meaning | Report placement |
+|-------|---------|-----------------|
+| `✅ VERIFIED` | HTTP response confirmed (status code + URL + curl) | Main vulnerability list |
+| `🟡 LIKELY` | Partial evidence (response pattern + URL) | Main list with annotation |
+| `🔍 INFERRED` | No direct proof — reasoning-based | "Needs Investigation" section |
+| `🤖 AI_ANALYSIS` | AI analysis text | Separate AI section |
+
+**No finding is ever discarded.** Unverified results are clearly labeled and placed in a dedicated section so you can manually verify them — not silently dropped.
+
+---
+
 ### Automated WAF Detection & Bypass
-When a URL is mentioned in chat, bingo automatically:
-1. AI writes Python code to detect WAF from HTTP headers and response patterns
-2. Identifies WAF type (Cloudflare, AWS WAF, ModSecurity, Wordfence, etc.)
+
+When a target URL is mentioned in chat, bingo automatically:
+1. Detects WAF type from HTTP headers and response patterns
+2. Identifies the WAF vendor (Cloudflare, AWS WAF, ModSecurity, Wordfence, etc.)
 3. Adapts injection payloads with encoding/obfuscation to bypass the WAF
-4. All steps are executed as real Python scripts — no external tool required
+4. Executes all steps as real Python scripts — no external tool required
 
 | WAF | Detection Method |
 |-----|-----------------|
@@ -97,10 +127,53 @@ When a URL is mentioned in chat, bingo automatically:
 | AWS WAF | `x-amzn-requestid` header, 403 pattern |
 | ModSecurity | Server header, error page content |
 
+---
+
+### Interactive Post-Report Actions (v2.1)
+
+After every report is generated, bingo presents **3–5 numbered next steps**:
+
+```
+╭─ Report saved: targets/report_example.com.md ─╮
+│ What to do next?                               │
+╰────────────────────────────────────────────────╯
+
+  #  Next Options
+  ─────────────────────────────────────────────
+  1  Run IDOR scan on /api/user?id= endpoints
+  2  Attempt IDOR-based password reset
+  3  Upload GIF polyglot webshell via /upload
+  4  Deep SQLi on login form with sqlmap flags
+  5  Check for exposed phpinfo() or .env files
+
+▶ Enter number + Enter (0 = exit, other = type freely)
+
+  > _
+```
+
+Enter a number to continue automatically — no need to think about what to do next.
+
+---
+
+### IDOR / Authorization Bypass Phase
+
+Based on real-world exploitation experience:
+
+- Scans for insecure direct object references (`?id=`, `?no=`, `?user_id=`)
+- Detects PII exposure (resident number, bank account, phone numbers)
+- Checks for unauthenticated admin panel access
+- Probes `phpinfo()` and sensitive file exposure
+- **IDOR-based password reset** — resets credentials via vulnerable endpoints and verifies actual login success
+- All findings tagged with evidence level
+
+---
+
 ### Hash Cracking — Fully Automated
-When password hashes appear in AI responses, bingo automatically:
+
+When password hashes appear in AI responses, bingo automatically triggers a crack pipeline:
 
 **Step 1 — Online Lookup** (fast, no GPU needed):
+
 | Site | Notes |
 |------|-------|
 | CrackStation | Largest free DB |
@@ -114,11 +187,12 @@ When password hashes appear in AI responses, bingo automatically:
 - `hashcat` (GPU-accelerated, bcrypt)
 - Python wordlist engine (rockyou.txt auto-detected)
 
-Supported hash types: `bcrypt`, `MD5`, `SHA-1`, `SHA-256`, `SHA-512`, `NTLM`, `MySQL41`
+Supported: `bcrypt`, `MD5`, `SHA-1`, `SHA-256`, `SHA-512`, `NTLM`, `MySQL41`
 
-Stop anytime: type `/stop` in chat.
+---
 
 ### External Tool Auto-Install & Python Fallback
+
 bingo manages all external tools automatically — no manual setup required.
 
 **Tool execution priority:**
@@ -127,7 +201,7 @@ bingo manages all external tools automatically — no manual setup required.
 |------|--------|
 | 1 | Use `~/.bingo/tools/` or system PATH |
 | 2 | **Auto-install** (GitHub Releases / brew / apt) |
-| 3 | **AI-generated Python** — AI writes the tool itself, workflow never stops |
+| 3 | **AI-generated Python** — AI writes the tool itself; workflow never stops |
 
 **Go binary tools** (auto-downloaded from GitHub Releases → `~/.bingo/tools/`):
 
@@ -148,42 +222,51 @@ bingo manages all external tools automatically — no manual setup required.
 | `nikto` | Web vuln scan | AI writes Python vuln check |
 | `whatweb` | Tech fingerprint | bingo http_probe |
 
-AI-generated Python tools run directly — **no external binary required**.
+---
 
 ### Session Auto-Save
+
 Every chat session is automatically saved to:
 ```
 ~/.config/bingo/sessions/session_YYYYMMDD_HHMMSS.md
 ```
-Full AI responses, commands, and crack results are logged in real time.
+Full AI responses, commands, and results are logged in real time.
+
+---
 
 ### Skill Engine
-220+ red team skills auto-injected into AI context based on your input.
+
+220+ red team skills across 39 modules — automatically injected into AI context based on your input. Use `/skill <keyword>` to search.
+
+**Modules include:** Reconnaissance, Exploitation, Privilege Escalation, Post-Exploitation, Lateral Movement, Persistence, Cloud Security, Mobile Security, LLM/AI Security, Blockchain/Web3, Ransomware Defense, and more.
+
+---
 
 ### AI Refusal Bypass
+
 All models (DeepSeek, Claude, GPT, GLM) are guided by a proprietary universal system prompt that enforces:
 - Structured task execution with semantic delimiters
-- OODA-loop based decision making (Observe → Orient → Decide → Act)
-- Anti-laziness enforcement — explicit evidence required for every step
+- OODA-loop decision making (Observe → Orient → Decide → Act)
+- Anti-laziness enforcement — explicit evidence required at every step
 - 5-phase red team pipeline with intel accumulation and coverage tracking
 
 ---
 
 ## Commands
 
-Type `/` in chat to see an interactive command menu (arrow keys to navigate).
+Type `/` in chat to open an interactive command menu (arrow keys to navigate).
 
 | Command | Description |
 |---------|-------------|
-| `/scan <url>` | Quick recon: WAF + fingerprint + sensitive files |
+| `/scan <url>` | Full red team pipeline: WAF + fingerprint + vuln + report |
 | `/waf <url>` | AI-driven WAF detection + bypass |
-| `/crack [hash]` | Hash crack — online lookup → offline crack pipeline |
+| `/crack [hash]` | Hash crack — online lookup → offline crack |
 | `/stop` | Stop running crack / scan |
 | `/tools` | Show all tools + auto-install missing ones |
 | `/tools install <name>` | Install a specific tool automatically |
 | `/tools install all` | Install all missing tools at once |
 | `/model` | Add or switch AI model |
-| `/skill <keyword>` | Search skill knowledge base |
+| `/skill <keyword>` | Search 220+ skill knowledge base |
 | `/history` | View conversation history |
 | `/export` | Save conversation as `.md` file |
 | `/config` | View current settings |
@@ -197,12 +280,7 @@ Type `/` in chat to see an interactive command menu (arrow keys to navigate).
 /tools                       # Show all tools — installed / missing / type
 /tools install nmap          # Auto-install nmap via brew/apt
 /tools install nuclei ffuf   # Auto-install multiple tools from GitHub Releases
-/tools install all           # Auto-install every missing tool
-```
-
-When running `/tools`, bingo also asks interactively:
-```
-지금 없는 도구를 모두 설치할까요? (y/N)
+/tools install all           # Auto-install every missing tool at once
 ```
 
 ### `/crack` Usage
@@ -222,9 +300,9 @@ bingo scan https://target.com
 Runs the full 5-phase red team pipeline:
 1. **Recon** — tech fingerprint, WAF detection, endpoint mapping
 2. **Collect** — sensitive files, admin panels, parameter discovery
-3. **Test** — SQLi, LFI, XSS, SSRF probing (AI writes Python probes)
+3. **Test** — SQLi, LFI, XSS, SSRF, IDOR probing (AI writes Python probes)
 4. **Exploit** — WAF bypass + data extraction + credential dump
-5. **Report** — auto-generated markdown report in `targets/`
+5. **Report** — auto-generated markdown report with evidence levels
 
 ---
 
@@ -256,8 +334,8 @@ Switch models anytime with `/model`.
 
 ## Data Storage
 
-| Data | Location | When |
-|------|----------|------|
+| Data | Location | Trigger |
+|------|----------|---------|
 | Chat sessions | `~/.config/bingo/sessions/session_*.md` | Auto (real-time) |
 | Scan reports | `targets/report_<domain>.md` | Auto on `bingo scan` |
 | Command history | `~/.config/bingo/history` | Auto |
@@ -267,7 +345,7 @@ Switch models anytime with `/model`.
 
 ---
 
-## Config File
+## Config File Location
 
 | OS | Path |
 |----|------|
@@ -282,32 +360,54 @@ Switch models anytime with `/model`.
 ```
 bingo/
 ├── bingo/
-│   ├── cli.py              # Entry point + onboarding
-│   ├── config.py           # Settings (cross-platform)
+│   ├── cli.py                    # Entry point + onboarding
+│   ├── config.py                 # Settings (cross-platform)
 │   ├── models/
-│   │   ├── base.py         # Streaming HTTP (OpenAI-compatible + Claude)
-│   │   ├── registry.py     # Provider registry
-│   │   └── system_prompt.py # Universal pentest prompt (all models)
+│   │   ├── base.py               # Streaming HTTP (OpenAI-compatible + Claude)
+│   │   ├── registry.py           # Provider registry
+│   │   └── system_prompt.py      # Universal pentest system prompt
 │   ├── tools/
-│   │   ├── registry.py     # Tool detection (~/.bingo/tools/ + PATH + vendor)
-│   │   ├── executor.py     # 4-step: vendor → PATH → auto-install → Python fallback
-│   │   ├── downloader.py   # Go binary auto-download from GitHub Releases
-│   │   ├── installer.py    # brew / apt / pip auto-install
-│   │   ├── http_probe.py   # HTTP fingerprinting
-│   │   ├── hash_crack.py   # Offline hash cracker (bcrypt/MD5/SHA/NTLM)
-│   │   └── hash_lookup.py  # Online hash lookup (CrackStation, hashes.com, etc.)
+│   │   ├── registry.py           # Tool detection (~/.bingo/tools/ + PATH + vendor)
+│   │   ├── executor.py           # 4-step: vendor → PATH → auto-install → Python fallback
+│   │   ├── downloader.py         # Go binary auto-download from GitHub Releases
+│   │   ├── installer.py          # brew / apt / pip auto-install
+│   │   ├── http_probe.py         # HTTP fingerprinting
+│   │   ├── hash_crack.py         # Offline hash cracker (bcrypt/MD5/SHA/NTLM)
+│   │   ├── hash_lookup.py        # Online hash lookup (CrackStation, hashes.com, etc.)
+│   │   └── idor_scanner.py       # IDOR/auth-bypass scanner + password reset
 │   ├── redteam/
-│   │   └── phases/         # 5-phase pipeline (recon → report)
+│   │   ├── session.py            # Red team session state + evidence-level tagging
+│   │   └── phases/               # 9-phase pipeline (recon → report)
+│   ├── core/
+│   │   └── anti_hallucination.py # Zero-Hallucination engine (VERIFIED/LIKELY/INFERRED)
 │   ├── skills/
-│   │   └── engine.py       # 220+ skill knowledge base
+│   │   └── engine.py             # 220+ skills across 39 modules (ko/zh/en)
 │   ├── ui/
-│   │   └── terminal.py     # Interactive terminal (slash autocomplete, auto-crack, /tools)
+│   │   └── terminal.py           # Interactive terminal (slash menu, live stream, post-report actions)
 │   └── lang/
-│       └── strings.py      # Multi-language strings
-├── install.sh              # macOS/Linux installer
-├── install.ps1             # Windows installer
+│       └── strings.py            # Multi-language string registry
+├── install.sh                    # macOS/Linux installer
+├── install.ps1                   # Windows installer
 └── pyproject.toml
 ```
+
+---
+
+## Changelog
+
+### v2.1.0 — Official Release *(2026-06)*
+- **Zero-Hallucination System** — all findings labeled `VERIFIED` / `LIKELY` / `INFERRED` / `AI_ANALYSIS`; nothing discarded
+- **Interactive Post-Report Actions** — 3–5 numbered next steps auto-presented after every report; enter a number to continue
+- **IDOR Phase** — real-world IDOR enumeration, PII detection, and IDOR-based password reset with login verification
+- **Full i18n** — all UI strings (skill module names, commands, evidence labels) in Korean / Chinese / English
+- **9-phase pipeline** — extended from 5 to 9 phases (webshell acquisition, IDOR, login verification added)
+- Production-stable (`Development Status :: 5 - Production/Stable`)
+
+### v2.0.x — Beta
+- Initial public release
+- 5-phase red team pipeline
+- WAF bypass, hash cracking, tool auto-install
+- Multi-model support (DeepSeek / Claude / GPT / GLM / Qwen / Ollama)
 
 ---
 
@@ -319,7 +419,7 @@ cd bingo
 bash install.sh
 ```
 
-Pull requests are welcome.
+Pull requests are welcome. Please open an issue first for major changes.
 
 ---
 

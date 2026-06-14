@@ -2367,8 +2367,7 @@ class BingoTerminal:
             if self._agent_stop_flag.is_set():
                 self._agent_stop_flag.clear()
                 self.console.print(f"\n[{THEME['warn']}]⚠ {_s.get('agent_interrupted', 'Agent loop interrupted')}[/]\n")
-                self._auto_generate_report()
-                self._suggest_next_steps()
+                self._auto_generate_report()  # 내부에서 _suggest_next_steps() 호출
                 break
 
             # Stuck 감지 — 최근 5루프 중 3개 동일하면 전략 전환, 5개 전부 동일하면 보고서 후 종료
@@ -2386,8 +2385,7 @@ class BingoTerminal:
                 self.console.print(
                     f"\n[{THEME['warn']}]⚠ {_s.get('agent_stuck', 'Agent stuck — generating report')}...[/]\n"
                 )
-                self._auto_generate_report()
-                self._suggest_next_steps()
+                self._auto_generate_report()  # 내부에서 _suggest_next_steps() 호출
                 self._stuck_count = 0
                 self._recent_results.clear()
                 break
@@ -2543,17 +2541,22 @@ class BingoTerminal:
                     f"\n[{THEME['success']}]💾 {self.s.get('report_saved', 'Report saved')}: "
                     f"[bold]{report_path}[/bold][/]\n"
                 )
+                # ── 보고서 직후 인터랙티브 다음 단계 선택지 표시 ────
+                self._suggest_next_steps()
 
         except Exception as e:
             self._error(f"report error: {e}")
 
     def _suggest_next_steps(self) -> None:
-        """Agent 루프 중단 시 AI가 현황 요약 + 다음 선택지 3개를 제시한다.
-        히스토리를 오염시키지 않고, 전용 패널로 시각적으로 구분해서 표시.
+        """Agent 루프 중단/보고서 생성 후 AI가 현황 요약 + 선택지 3~5개를 제시한다.
+        사용자가 번호를 입력하면 해당 선택지를 자동으로 실행 (인터랙티브).
+        히스토리를 오염시키지 않고 전용 패널로 시각적으로 구분해서 표시.
         """
+        import re
         from ..models.registry import ModelRegistry
         from rich.panel import Panel as _Panel
         from rich.rule import Rule
+        from rich.table import Table as _Table
 
         model_cfg = self.config.get_active_model_config()
         if not model_cfg:
@@ -2563,7 +2566,6 @@ class BingoTerminal:
         _lang_label = {"ko": "Korean", "zh": "Chinese (Simplified)", "en": "English"}.get(_lang, "English")
 
         _state = self._agent_state
-        # 지금까지의 AI 대화 중 마지막 assistant 메시지만 발췌 (컨텍스트로 사용)
         last_ai_msgs = [
             m.content for m in self.history[-6:]
             if m.role == "assistant"
@@ -2574,34 +2576,54 @@ class BingoTerminal:
         _summary_label = _s.get("progress_summary", "Summary")
         _options_label  = _s.get("next_steps_title", "Next Options")
         _option_hint = {
-            "ko": "구체적인 bingo 입력 명령어",
-            "zh": "具体的 bingo 输入指令",
-            "en": "exact bingo input command",
+            "ko": "구체적인 bingo 입력 명령어 또는 지시문",
+            "zh": "具体的 bingo 输入指令或说明",
+            "en": "exact bingo command or instruction",
         }.get(_lang, "exact command")
+
+        # 아직 수행하지 않은 공격 항목 추출 (컨텍스트 힌트)
+        _untested_hint = {
+            "ko": (
+                "아직 시도하지 않은 가능한 공격: 비밀번호 크랙, "
+                "웹쉘 업로드, IDOR 권한 상승, SQLi 심화, API 엔드포인트 퍼징"
+            ),
+            "zh": (
+                "尚未尝试的潜在攻击：密码破解、Webshell上传、"
+                "IDOR权限提升、深度SQLi、API端点爆破"
+            ),
+            "en": (
+                "Potentially untested: password cracking, webshell upload, "
+                "IDOR privilege escalation, deep SQLi, API endpoint fuzzing"
+            ),
+        }.get(_lang, "")
 
         prompt_msg = Message(
             role="user",
             content=(
-                "[AGENT PAUSED — PROVIDE NEXT STEPS]\n\n"
-                f"Known state so far: {_state}\n\n"
+                "[INTERACTIVE NEXT STEPS — PENTEST CONTINUATION]\n\n"
+                f"Target: {_state.get('target', 'unknown')}\n"
+                f"Current state: {_state}\n\n"
                 f"Recent activity:\n{recent_context}\n\n"
-                f"INSTRUCTIONS (CRITICAL):\n"
-                f"1. Write ONLY plain text. NO code blocks. NO markdown headers.\n"
+                f"Hint — {_untested_hint}\n\n"
+                f"INSTRUCTIONS (CRITICAL — follow EXACTLY):\n"
+                f"1. Plain text ONLY. NO code blocks. NO markdown headers (#).\n"
                 f"2. Respond ENTIRELY in {_lang_label}.\n"
-                f"3. Output EXACTLY in this format:\n\n"
-                f"{_summary_label}: [2 sentences max]\n\n"
+                f"3. Output in EXACTLY this format (nothing else):\n\n"
+                f"{_summary_label}: [1-2 sentences about current status]\n\n"
                 f"{_options_label}:\n"
-                f"① [{_option_hint}]\n"
-                f"② [{_option_hint}]\n"
-                f"③ [{_option_hint}]"
+                f"1. [{_option_hint}]\n"
+                f"2. [{_option_hint}]\n"
+                f"3. [{_option_hint}]\n"
+                f"4. [{_option_hint}]\n"
+                f"5. [{_option_hint}]"
             )
         )
 
-        # 히스토리를 오염시키지 않고 임시 메시지 목록 구성
         temp_messages = [self._get_system_message("")] + self.history[-10:] + [prompt_msg]
 
+        _after_report_title = _s.get("next_steps_after_report", "Report done — choose next step")
         self.console.print(Rule(
-            f"[bold cyan]💡 {_options_label}[/bold cyan]",
+            f"[bold cyan]💡 {_after_report_title}[/bold cyan]",
             style="cyan"
         ))
 
@@ -2612,7 +2634,6 @@ class BingoTerminal:
 
             with Live(console=self.console, refresh_per_second=15, transient=True) as live:
                 from rich.text import Text as _Text
-                buf = _Text()
                 for chunk in model.chat_stream(temp_messages):
                     if chunk.error:
                         live.stop()
@@ -2620,13 +2641,106 @@ class BingoTerminal:
                         return
                     if chunk.text:
                         full += chunk.text
-                        buf = _Text(full, style="white")
-                        live.update(buf)
+                        live.update(_Text(full, style="white"))
 
-            if full.strip():
+            if not full.strip():
+                return
+
+            self.console.print()
+
+            # ── 선택지 파싱 (1. ... / 2. ... / 3. ...) ──────────────
+            lines = full.strip().splitlines()
+            options: list[str] = []
+            summary_lines: list[str] = []
+            in_options = False
+
+            for line in lines:
+                stripped = line.strip()
+                # 선택지 섹션 시작 감지
+                _opt_markers = [
+                    _s.get("next_steps_title", "Next Options"),
+                    "Next Options", "다음 단계", "选择操作", "选项",
+                ]
+                if any(stripped.startswith(m) for m in _opt_markers):
+                    in_options = True
+                    continue
+                if in_options:
+                    # "1. xxx", "① xxx", "(1) xxx" 패턴 모두 허용
+                    m = re.match(r'^[①②③④⑤1-5][\.\)]\s*(.+)$', stripped)
+                    if m:
+                        options.append(m.group(1).strip())
+                    elif re.match(r'^[①②③④⑤]', stripped):
+                        options.append(re.sub(r'^[①②③④⑤]\s*', '', stripped))
+                elif stripped:
+                    summary_lines.append(stripped)
+
+            # 파싱 실패 시 번호 패턴으로 재시도 (전체 텍스트 대상)
+            if not options:
+                for line in lines:
+                    m = re.match(r'^[①②③④⑤1-5][\.\)\s]+(.+)$', line.strip())
+                    if m:
+                        options.append(m.group(1).strip())
+
+            # ── 출력 ──────────────────────────────────────────────────
+            from rich.markup import escape as _esc
+
+            # 요약 출력
+            if summary_lines:
+                summary_text = " ".join(summary_lines[:3])
+                self.console.print(_Panel(
+                    _esc(summary_text),
+                    title=f"[{THEME['dim']}]{_summary_label}[/]",
+                    border_style=THEME["dim"],
+                    padding=(0, 2),
+                ))
+
+            if options:
+                # 선택지 테이블
+                tbl = _Table(
+                    title=f"[bold cyan]{_options_label}[/bold cyan]",
+                    border_style="cyan",
+                    show_header=False,
+                    padding=(0, 1),
+                )
+                tbl.add_column("No", style="bold cyan", width=4, justify="right")
+                tbl.add_column("Action", style="white")
+                for i, opt in enumerate(options, 1):
+                    tbl.add_row(str(i), _esc(opt))
+                self.console.print(tbl)
                 self.console.print()
-                # 패널로 감싸서 시각적으로 구분
-                from rich.markup import escape as _esc
+
+                # ── 번호 입력 대기 ────────────────────────────────────
+                _prompt_txt = _s.get(
+                    "next_steps_prompt",
+                    "Enter number + Enter (0 = exit, other = type freely)"
+                )
+                self.console.print(
+                    f"[bold cyan]▶[/bold cyan] [{THEME['dim']}]{_prompt_txt}[/]"
+                )
+                self.console.print()
+
+                try:
+                    raw = input("  > ").strip()
+                except (EOFError, KeyboardInterrupt):
+                    return
+
+                if raw == "0" or raw == "":
+                    self.console.print(
+                        f"[{THEME['dim']}]{_s.get('next_steps_skipped', 'Skipped.')}[/]"
+                    )
+                    return
+
+                if raw.isdigit() and 1 <= int(raw) <= len(options):
+                    chosen = options[int(raw) - 1]
+                    exec_msg = _s.get("next_steps_executing", "▶ Executing option {n}...").format(n=raw)
+                    self.console.print(f"\n[bold cyan]{exec_msg}[/bold cyan]\n")
+                    # 선택된 옵션을 일반 사용자 입력으로 처리
+                    self._send_message(chosen)
+                else:
+                    # 숫자가 아니면 그대로 입력으로 처리
+                    self._send_message(raw)
+            else:
+                # 파싱 실패 — 원문 그대로 패널로 표시
                 self.console.print(_Panel(
                     _esc(full.strip()),
                     border_style="cyan",
@@ -3436,13 +3550,14 @@ class BingoTerminal:
             # ── 로컬 SecSkills references 검색 ────────────────────────
             local_results = engine.local_skill_search(keyword)
             if local_results:
+                _ref_title = self.s.get("skill_secskills_ref", "SecSkills References")
                 self.console.print(
-                    f"\n[{THEME['secondary']}]🔍 SecSkills 레퍼런스: [bold]{keyword}[/bold][/]"
+                    f"\n[{THEME['secondary']}]🔍 {_ref_title}: [bold]{keyword}[/bold][/]"
                 )
                 ref_table = Table(border_style=THEME["primary"], show_header=True)
-                ref_table.add_column("스킬 팩", style=THEME["secondary"], width=20)
-                ref_table.add_column("레퍼런스", style="white", width=30)
-                ref_table.add_column("키워드", style=THEME["dim"])
+                ref_table.add_column(self.s.get("skill_col_pack", "Skill Pack"), style=THEME["secondary"], width=20)
+                ref_table.add_column(self.s.get("skill_col_ref", "Reference"), style="white", width=30)
+                ref_table.add_column(self.s.get("skill_col_tag", "Keywords"), style=THEME["dim"])
                 for r in local_results[:8]:
                     ref_table.add_row(
                         r["skill_dir"],
@@ -3469,8 +3584,8 @@ class BingoTerminal:
                     border_style=THEME["success"],
                     show_header=True,
                 )
-                hs_table.add_column("스킬명 (SKILL_LOAD 이름)", style=THEME["secondary"], width=42)
-                hs_table.add_column("Lines", justify="right", style=THEME["dim"], width=7)
+                hs_table.add_column(self.s.get("skill_col_name", "Skill Name (SKILL_LOAD)"), style=THEME["secondary"], width=42)
+                hs_table.add_column(self.s.get("skill_col_lines", "Lines"), justify="right", style=THEME["dim"], width=7)
                 # 카테고리 구분선과 함께 출력
                 cat_map = {
                     "injection": "🔴 Web Injection",
@@ -3571,9 +3686,12 @@ class BingoTerminal:
                 self.console.print(
                     f"[{THEME['dim']}]  💡 {self.s.get('hackskills_auto_full', 'AI auto-selects. No manual install/activation needed.')}[/]"
                 )
-                self.console.print(
-                    f"[{THEME['dim']}]  💡 /skill <키워드>  — 특정 스킬 검색[/]\n"
-                )
+                _search_tip = {
+                    "ko": "💡 /skill <키워드>  — 특정 스킬 검색",
+                    "zh": "💡 /skill <关键词>  — 搜索特定技能",
+                    "en": "💡 /skill <keyword>  — search for a specific skill",
+                }.get(getattr(self.config, "lang", "en"), "💡 /skill <keyword>  — search for a specific skill")
+                self.console.print(f"[{THEME['dim']}]  {_search_tip}[/]\n")
 
             # ── 로컬 SecSkills 팩 목록 ──────────────────────────────────
             local_skills = engine.list_local_skills()
@@ -3600,11 +3718,20 @@ class BingoTerminal:
                 title=f"[{THEME['primary']}]{self.s['skill_module_title']}[/]",
                 border_style=THEME["primary"],
             )
+            _lang = getattr(self.config, "lang", "en")
+            _col_module = {"ko": "모듈", "zh": "模块", "en": "Module"}.get(_lang, "Module")
+            _col_count  = {"ko": "스킬 수", "zh": "技能数", "en": "Skills"}.get(_lang, "Skills")
             table.add_column("ID", style=THEME["secondary"], width=4)
-            table.add_column("모듈", style="white")
-            table.add_column("스킬 수", justify="right")
+            table.add_column(_col_module, style="white")
+            table.add_column(_col_count, justify="right")
             for mod in engine.list_all():
-                table.add_row(mod["id"], mod["en"], str(len(mod["skills"])))
+                # 언어별 모듈명: ko > en > zh
+                _mod_name = mod.get("ko") or mod.get("en") or mod.get("name", "")
+                if _lang == "zh":
+                    _mod_name = mod.get("name") or mod.get("en", "")
+                elif _lang == "en":
+                    _mod_name = mod.get("en") or mod.get("name", "")
+                table.add_row(mod["id"], _mod_name, str(len(mod["skills"])))
             self.console.print(table)
             self.console.print(f"[{THEME['dim']}]{self.s['skill_search_hint']}[/]")
 
@@ -3618,12 +3745,23 @@ class BingoTerminal:
                 mod_counts: Counter = Counter()
                 for sk in _all_db.values():
                     mod_counts[sk.get("module", "Unknown")] += 1
+                _db_title = {
+                    "ko": f"📚 내장 DB 모듈 — {len(_all_db)}개 스킬 (SKILL_LOAD: <모듈명>)",
+                    "zh": f"📚 内置DB模块 — {len(_all_db)}个技能 (SKILL_LOAD: <模块名>)",
+                    "en": f"📚 Built-in DB Modules — {len(_all_db)} skills (SKILL_LOAD: <module>)",
+                }.get(_lang, f"📚 Built-in DB — {len(_all_db)} skills")
+                _col_mod_name = {
+                    "ko": "모듈명 (SKILL_LOAD)",
+                    "zh": "模块名 (SKILL_LOAD)",
+                    "en": "Module Name (SKILL_LOAD)",
+                }.get(_lang, "Module Name (SKILL_LOAD)")
+                _col_sk_cnt = {"ko": "스킬 수", "zh": "技能数", "en": "Skills"}.get(_lang, "Skills")
                 db_table = Table(
-                    title=f"[{THEME['primary']}]📚 내장 DB 모듈 — {len(_all_db)}개 스킬 (SKILL_LOAD: <모듈명>)[/]",
+                    title=f"[{THEME['primary']}]{_db_title}[/]",
                     border_style=THEME["primary"],
                 )
-                db_table.add_column("모듈명 (SKILL_LOAD 이름)", style=THEME["secondary"], width=32)
-                db_table.add_column("스킬 수", justify="right", style=THEME["dim"], width=8)
+                db_table.add_column(_col_mod_name, style=THEME["secondary"], width=32)
+                db_table.add_column(_col_sk_cnt, justify="right", style=THEME["dim"], width=8)
                 for mod_name, cnt in sorted(mod_counts.items()):
                     db_table.add_row(mod_name, str(cnt))
                 self.console.print(db_table)
