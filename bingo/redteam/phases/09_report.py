@@ -391,6 +391,62 @@ def _get_recommendation(vuln_type: str) -> str:
         if finding_type in cswsh_recs:
             return cswsh_recs[finding_type]
 
+        # Redis DarkReplica CVE-2026-23631 권고
+        redis_recs = {
+            "redis_found": (
+                "1. Redis를 인터넷에 직접 노출하지 말 것 — 방화벽으로 6379 포트 차단\n"
+                "2. bind 127.0.0.1 설정으로 로컬 전용 접근 제한\n"
+                "3. requirepass 설정으로 강력한 패스워드 적용 (최소 32자 무작위 문자열)"
+            ),
+            "redis_noauth": (
+                "1. [긴급] Redis requirepass 즉시 설정 — 인증 없는 접근 완전 차단\n"
+                "2. 방화벽 규칙으로 신뢰된 IP만 Redis 포트 접근 허용\n"
+                "3. Redis ACL (Redis 6.0+) 적용으로 명령어별 권한 세분화\n"
+                "4. protected-mode yes 설정 확인"
+            ),
+            "redis_weak_auth": (
+                "1. [긴급] Redis 패스워드를 고강도로 즉시 변경 (최소 32자)\n"
+                "2. Redis 6.0+ ACL 사용자 인증 시스템으로 마이그레이션\n"
+                "3. 패스워드를 설정 파일에 평문 저장하지 말고 환경변수/Vault 사용"
+            ),
+            "vulnerable_version": (
+                "1. [긴급] Redis 버전 즉시 업그레이드:\n"
+                "   - 7.2.x → 7.2.14+\n"
+                "   - 7.4.x → 7.4.9+\n"
+                "   - 8.2.x → 8.2.6+\n"
+                "   - 8.4.x → 8.4.3+\n"
+                "   - 8.6.x → 8.6.3+\n"
+                "2. 업그레이드 전 SLAVEOF / REPLICAOF 명령어 ACL로 제한\n"
+                "3. 신뢰된 IP만 Redis에 접근하도록 방화벽 규칙 강화"
+            ),
+            "slaveof_allowed": (
+                "1. SLAVEOF/REPLICAOF 명령어를 ACL로 관리자 전용으로 제한\n"
+                "2. replica-read-only yes 설정 유지\n"
+                "3. 알려진 마스터 서버 외 복제 연결 차단"
+            ),
+            "function_engine_available": (
+                "1. FUNCTION 명령어를 ACL로 제한 (FUNCTION LOAD는 관리자만)\n"
+                "2. 운영 환경에서 Lua 스크립트 실행 시간 제한 적용\n"
+                "   `lua-time-limit 500` (밀리초) 설정\n"
+                "3. FUNCTION / EVAL 명령어를 일반 사용자 ACL에서 제거"
+            ),
+            "dark_replica_exploitable": (
+                "1. [긴급] Redis 즉시 패치 — CVE-2026-23631 취약 버전\n"
+                "2. 네트워크 격리: Redis를 내부 네트워크로만 제한\n"
+                "3. SLAVEOF / FUNCTION LOAD 명령어 ACL 제한\n"
+                "4. Redis 로그 모니터링: 비정상 SLAVEOF 명령 알림 설정\n"
+                "5. Lua time limit 축소로 UAF 트리거 윈도우 최소화"
+            ),
+            "dark_replica_likely": (
+                "1. Redis 버전 확인 및 패치 적용 우선순위 Critical로 설정\n"
+                "2. 방화벽으로 6379 포트 외부 접근 즉시 차단\n"
+                "3. ACL로 SLAVEOF / FUNCTION LOAD 권한 최소화\n"
+                "4. 패치 완료 전까지 Redis 앞에 프록시 레이어 도입"
+            ),
+        }
+        if finding_type in redis_recs:
+            return redis_recs[finding_type]
+
         # OAuth Chain Attack 권고
         "email_trust_chain": (
             "1. 이메일 인증 없이 계정 생성 즉시 차단 — 검증 전 로그인/OAuth 토큰 발급 금지\n"

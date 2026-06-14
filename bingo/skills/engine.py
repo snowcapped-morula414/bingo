@@ -192,6 +192,17 @@ BUILTIN_MODULES: list[dict] = [
          "URL 파라미터 → RSC body 반영 확인 → SXSS 가능성 검증",
          "2단계 캐시 포이즈닝 PoC 자동 생성 (Refresh 헤더 활용)",
      ]},
+    {"id": "48", "name": "Redis DarkReplica UAF→RCE (CVE-2026-23631)", "en": "RedisDarkReplica", "ko": "Redis_DarkReplica_RCE",
+     "skills": [
+         "Redis 포트 자동 탐지 (6379/6380/6381/6382)",
+         "인증 없는 접근 확인 (NOAUTH 여부)",
+         "빈 패스워드 / 자격증명 AUTH 자동 시도",
+         "INFO server → redis_version 추출 → 취약 버전 비교",
+         "SLAVEOF NO ONE 권한 확인 (복제 제어 가능 여부)",
+         "FUNCTION LIST 엔진 확인 (Lua 함수 등록 가능 여부)",
+         "CONFIG GET slave-read-only 접근 확인",
+         "완전 익스플로잇 가능 시 DarkReplica PoC 자동 생성",
+     ]},
     {"id": "46", "name": "CSWSH+EXE노출+로컬WebSocket RCE체인", "en": "CswshRceChain", "ko": "CSWSH_RCE체인탐지",
      "skills": [
          "JS 파일에서 EXE 다운로드 함수 자동 추출",
