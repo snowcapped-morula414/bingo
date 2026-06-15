@@ -1195,8 +1195,20 @@ class BingoTerminal:
         return "\n\n".join(results)
 
     def _build_messages(self, skill_context: str = "") -> list[Message]:
-        """시스템 프롬프트 + 스킬 컨텍스트 + 대화 히스토리 합치기"""
-        return [self._get_system_message(skill_context)] + self.history
+        """시스템 프롬프트 + 스킬 컨텍스트 + 대화 히스토리 합치기.
+        history 안에 dict가 섞여 있어도 자동으로 Message 로 변환한다.
+        """
+        safe_history: list[Message] = []
+        for m in self.history:
+            if isinstance(m, Message):
+                safe_history.append(m)
+            elif isinstance(m, dict):
+                role = m.get("role", "user")
+                content = m.get("content", "")
+                if role in ("user", "assistant", "system") and content:
+                    safe_history.append(Message(role=role, content=content))
+        self.history = safe_history          # 정규화 반영
+        return [self._get_system_message(skill_context)] + safe_history
 
     # ────────────────────────────────────────────────────────────────
     # 일반 대화 감지 — 침투테스트와 무관한 질문인지 판별

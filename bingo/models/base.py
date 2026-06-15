@@ -162,7 +162,15 @@ class BaseModel:
         system = self.config.get_system_prompt()
         if system:
             msgs.append({"role": "system", "content": system})
-        msgs += [{"role": m.role, "content": m.content} for m in messages]
+        for m in messages:
+            if isinstance(m, dict):
+                role = m.get("role", "user")
+                content = m.get("content", "")
+            else:
+                role = m.role
+                content = m.content
+            if role in ("user", "assistant", "system") and content:
+                msgs.append({"role": role, "content": content})
 
         payload = {
             "model": self.config.model,
