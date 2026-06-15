@@ -31,7 +31,31 @@ bingo is a hacker-style AI terminal that automates real penetration testing work
 
 ## Installation
 
-### macOS / Linux
+### Option A — pip (Recommended, all platforms)
+
+The easiest way. Works on macOS, Windows, and Linux.
+
+```bash
+pip install bingo-ai
+```
+
+Then run:
+
+```bash
+bingo
+```
+
+To update later:
+
+```bash
+bingo --update
+# or
+pip install --upgrade bingo-ai
+```
+
+---
+
+### Option B — git clone (macOS / Linux)
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/bingook/bingo/main/install.sh | bash
@@ -44,6 +68,16 @@ git clone https://github.com/bingook/bingo.git
 cd bingo
 bash install.sh
 ```
+
+To update later:
+
+```bash
+bingo --update
+# or
+cd bingo && git pull origin main
+```
+
+---
 
 ### Windows
 
