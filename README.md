@@ -38,6 +38,19 @@ bingo is a hacker-style AI terminal that automates real penetration testing work
 | Login Attack | Accurate success detection; Korea-specific credentials; SQLi auth bypass payloads |
 | WAF Bypass Generator | Space substitution / case mix / URL encode / inline comment / HPP variants |
 
+**Burp Engine** (new in v2.3): Full Burp Suite feature set implemented in pure Python. No Burp Suite installation required. Community or Pro — irrelevant. The AI automatically selects the appropriate Burp-equivalent module based on context.
+
+| Burp Feature | bingo Equivalent | Description |
+|---|---|---|
+| Repeater | `burp_engine.repeater()` | Replay HTTP requests with custom headers/body/params. Measures response time for time-based SQLi. |
+| Intruder | `burp_engine.intruder()` | Payload fuzzing at `§payload§` markers. Sniper / Battering Ram / Pitchfork / Cluster Bomb modes. Multi-threaded. |
+| Scanner (Passive) | `burp_engine.scanner_passive()` | Detect missing security headers (CSP/HSTS/X-Frame-Options), server version disclosure, stack trace exposure. |
+| Scanner (Active) | `burp_engine.scanner_active()` | Inject SQLi / XSS / SSTI payloads into parameters and analyze responses. No Burp Pro needed. |
+| Decoder | `burp_engine.decoder()` | Base64 / URL / HTML / Hex / Gzip auto-encode and decode. Full `%XX` encoding for WAF bypass. |
+| Comparer | `burp_engine.comparer()` | Diff two HTTP responses by length and content. Confirms boolean-based SQLi. |
+| Collaborator | `burp_engine.CollaboratorClient()` | Out-of-band detection via interactsh. SSRF / XXE / RCE / Log4Shell callbacks. No Burp Pro required. |
+| Proxy | `burp_engine.BurpProxy()` | Intercept and log HTTP traffic with optional request modifier. History dump included. |
+
 ---
 
 ## Installation
