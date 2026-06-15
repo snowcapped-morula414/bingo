@@ -1164,6 +1164,116 @@ class BingoTerminal:
         """시스템 프롬프트 + 스킬 컨텍스트 + 대화 히스토리 합치기"""
         return [self._get_system_message(skill_context)] + self.history
 
+    # ────────────────────────────────────────────────────────────────
+    # 일반 대화 감지 — 침투테스트와 무관한 질문인지 판별
+    # ────────────────────────────────────────────────────────────────
+    _GENERAL_TRIGGERS = (
+        # 자기소개 / 모델 질문
+        "무슨 모델", "어떤 모델", "모델이야", "모델이니", "모델이에요",
+        "what model", "which model", "what are you", "who are you",
+        "你是什么", "你是哪个", "什么模型", "哪个模型",
+        # 인사
+        "안녕", "반가워", "반갑습니다", "안녕하세요", "hi", "hello", "hey",
+        "你好", "您好", "嗨", "哈喽",
+        # 자기소개 요청
+        "소개해줘", "소개해 줘", "introduce yourself",
+        "자기소개", "너에 대해", "bingo가 뭐야", "bingo란", "bingo에 대해",
+        "告诉我关于你", "介绍一下",
+        # 기능 문의
+        "뭘 할 수 있어", "뭘 할 수 있니", "무엇을 할 수 있", "어떤 기능",
+        "what can you do", "your capabilities", "what do you do",
+        "你能做什么", "有什么功能",
+        # 감사 / 칭찬
+        "고마워", "감사해", "고맙습니다", "감사합니다",
+        "thank you", "thanks", "great job", "well done",
+        "谢谢", "太好了", "做得好",
+        # 개념 질문 (짧은 정의 요청)
+        "이 뭐야", "이 뭐니", "이란 뭐야", "란 무엇", "란 뭐야",
+        "what is ", "what's ", "what are ", "explain ",
+        "是什么", "什么是", "解释一下",
+        # 날씨·시간·잡담
+        "오늘 날씨", "몇 시야", "뭐 먹을", "피곤하다", "심심하다",
+        "weather", "what time", "i'm bored", "i'm tired",
+        "今天天气", "几点了", "无聊",
+    )
+    _PENTEST_STRONG = (
+        "http://", "https://", ".com", ".net", ".kr", ".cn", ".jp",
+        "sqli", "sql inject", "xss", "lfi", "rce", "ssrf", "idor",
+        "payload", "bypass", "shell", "exploit", "scan port",
+        "해킹", "취약점 테스트", "침투", "인젝션", "스캔",
+        "渗透", "注入", "漏洞", "扫描",
+    )
+
+    # 개념 질문 접두사 — 이 패턴으로 시작하면 보안 키워드가 있어도 general로 취급
+    _CONCEPT_PREFIXES = (
+        "what is ", "what's ", "what are ", "explain ", "define ",
+        "뭐야", "뭐니", "뭐에요", "란 무엇", "이란 뭐", "이 뭐야", "이 뭐니",
+        "是什么", "什么是", "解释", "讲一下",
+        "how does ", "how do ", "어떻게 작동", "어떻게 동작",
+        "什么意思", "怎么工作",
+    )
+
+    def _is_general_question(self, text: str) -> bool:
+        """일반 대화성 질문이면 True — 침투테스트 작업이면 False."""
+        import re as _re
+        t = text.strip().lower()
+        # URL 포함 → 명확히 pentest
+        if _re.search(r"https?://", t):
+            return False
+        # 개념질문 접두사 포함 → general (보안 키워드 있어도)
+        if any(t.startswith(p) or p in t for p in self._CONCEPT_PREFIXES):
+            return True
+        # 일반 대화 트리거 → general (pentest 키워드 체크 전에)
+        if any(kw in t for kw in self._GENERAL_TRIGGERS):
+            return True
+        # 강한 pentest 키워드가 있고 URL도 없는 경우 →
+        # 짧은 문장이면 개념 질문으로, 긴 문장이면 pentest 작업으로
+        if any(kw in t for kw in self._PENTEST_STRONG):
+            # 짧고 물음표로 끝나면 개념 질문 (e.g. "XSS가 뭐야?")
+            if len(t) <= 40 and (t.endswith("?") or t.endswith("？")):
+                return True
+            return False
+        # 짧은 문장(50자 이하)이고 물음표 또는 느낌표로 끝나면 general로 취급
+        if len(t) <= 50 and (t.endswith("?") or t.endswith("!") or
+                              t.endswith("？") or t.endswith("！")):
+            return True
+        return False
+
+    def _get_general_system_message(self) -> "Message":
+        """일반 대화용 경량 시스템 프롬프트 반환 (침투테스트 강요 없음)."""
+        from ..models.registry import ModelRegistry
+        model_cfg = self.config.get_active_model_config()
+        provider = (model_cfg.provider if model_cfg else "unknown").lower()
+
+        _lang = getattr(self.config, "lang", "en")
+        _lang_label = {
+            "ko": "Korean (한국어)",
+            "zh": "Chinese Simplified (简体中文)",
+            "en": "English",
+        }.get(_lang, "English")
+
+        _model_name = model_cfg.model if model_cfg else "unknown"
+        _provider_display = model_cfg.provider if model_cfg else "unknown"
+
+        system = (
+            f"You are BINGO — an autonomous penetration testing engine.\n"
+            f"You are powered by the model: {_model_name} (provider: {_provider_display}).\n\n"
+            f"=== GENERAL CONVERSATION MODE ===\n"
+            f"The user has asked a general (non-pentest) question.\n"
+            f"Respond naturally, helpfully, and concisely as an AI assistant.\n\n"
+            f"Rules:\n"
+            f"- ALWAYS respond in {_lang_label}. Every single word must be in this language.\n"
+            f"- Introduce yourself as BINGO when asked.\n"
+            f"- If asked about your model/provider, state: '{_model_name}' by '{_provider_display}'.\n"
+            f"- If asked about your capabilities, briefly describe BINGO's pentest features.\n"
+            f"- If asked a general knowledge question (what is XSS, etc.), answer clearly.\n"
+            f"- Keep responses concise (3-5 lines for simple questions).\n"
+            f"- Do NOT output AWAITING_BINGO_EXECUTION.\n"
+            f"- Do NOT output vulnerability report format.\n"
+            f"- Be friendly and human-like in tone.\n"
+        )
+        return Message(role="system", content=system)
+
     def _send_message(self, text: str) -> None:
         # 사용자 메시지 출력
         self._print_user(text)
@@ -1176,6 +1286,32 @@ class BingoTerminal:
         from ..models.registry import ModelRegistry
         from ..models.system_prompt import detect_refusal, rephrase_refused_request, wrap_task
         model = ModelRegistry.build(model_cfg)
+
+        # ── 일반 대화 모드 감지 ────────────────────────────────────────
+        if self._is_general_question(text):
+            self.history.append(Message(role="user", content=text))
+            self._append_to_session_log("user", text)
+
+            # 임시로 시스템 메시지를 경량 일반대화 프롬프트로 교체
+            _orig_build = self._build_messages
+
+            def _general_build(skill_context: str = "") -> list:  # type: ignore[override]
+                msgs = [{"role": "system", "content": self._get_general_system_message().content}]
+                for m in self.history:
+                    if m.role != "system":
+                        msgs.append({"role": m.role, "content": m.content})
+                return msgs
+
+            self._build_messages = _general_build  # type: ignore[method-assign]
+            full_response = self._stream_response(
+                model.chat_stream(self._build_messages(""))
+            )
+            self._build_messages = _orig_build  # type: ignore[method-assign]
+
+            if full_response:
+                self.history.append(Message(role="assistant", content=full_response))
+                self._append_to_session_log("assistant", full_response)
+            return
 
         # 관련 스킬 자동 조회
         skill_context = self._get_skill_context(text)
