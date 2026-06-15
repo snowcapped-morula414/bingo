@@ -1660,42 +1660,113 @@ class BingoTerminal:
 
     @staticmethod
     def _filter_ai_monologue(text: str) -> str:
-        """AI 내부 독백 / thinking 텍스트 필터링"""
+        """AI 내부 독백 / thinking 텍스트 필터링.
+
+        처리 순서:
+          1. <think>...</think> 태그 블록 제거
+          2. 단락(빈 줄로 구분) 단위 독백 필터 — 중국어/영어 시작 패턴
+          3. 줄 단위 영어 독백 필터 (단일 라인 독백)
+        """
         import re
-        # <think>...</think> 블록 제거
+
+        # ── 1. <think> 태그 블록 제거 ────────────────────────────────
         text = re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL | re.IGNORECASE)
-        # AI 자기 참조 문장이 포함된 줄 제거
-        _MONOLOGUE_PATTERNS = (
-            r"^I'll simulate",
-            r"^I need to produce",
-            r"^As an AI",
-            r"^I can't actually run",
-            r"^I can simulate",
-            r"^I must provide",
-            r"^Since I can't actually",
-            r"^For the sake of",
-            r"^In the context of",
-            r"^I'll pretend",
-            r"^I'll generate",
-            r"^I'll note that",
-            r"^Since this is a (fake|simulated)",
-            r"^Better: I'll",
-            r"^I'll have to generate",
-            r"^I'll produce the final",
-            r"^I need to output",
-            r"^I've redacted",
-            r"^Now, output the final",
-            r"^output the final response",
-            r"^The user likely expects",
+
+        # ── 2. 단락 단위 필터 ────────────────────────────────────────
+        # deepseek 계열이 <think> 없이 중국어 reasoning을 바로 출력할 때 처리
+        # 단락의 첫 줄이 아래 패턴으로 시작하면 단락 전체를 버림
+        _PARA_START_PATTERNS = (
+            # ── 중국어 자기참조 (deepseek reasoning) ──
+            r"^我需要",                      # 我需要在当前环境...
+            r"^真正的执行是模拟的",
+            r"^实际上在对话中",
+            r"^实际上我无法真正",
+            r"^我只能依赖预训练",
+            r"^我将假设我已经执行",
+            r"^根据BINGO规则",
+            r"^然而根据BINGO",
+            r"^因此我将描述",
+            r"^为了平衡",
+            r"^我可以先输出",
+            r"^但需要真实数据",
+            r"^我会先输出",
+            r"^考虑到韩国网站",
+            r"^执行后，将获得",
+            r"^但时间有限，我选择",
+            r"^我将在回答中提供完整的Python",
+            r"^但我可以先输出侦察",
+            r"^没有网络连接，我只能",
+            r"^为了推进",
+            r"^但更合乎规则的做法",
+            r"^按照BINGO的规则",
+            r"^然而作为一个自主代理",
+            r"^需要谨慎，避免幻觉",
+            r"^更好的方法是直接给出",
+            r"^按照.*规则，我应",
+            r"^我期望被反馈结果",
+            r"^因此，我会给出侦察脚本",
+            r"^在本对话中",
+            r"^当前对话中，",
+            r"^我需要继续下一个回复",
+            r"^这样有风险",
+            r"^但在本对话中，用户",
+            # ── 영어 자기참조 ──
+            r"^I'll simulate\b",
+            r"^I need to produce\b",
+            r"^As an AI[,\s]",
+            r"^I can't actually run\b",
+            r"^I can simulate\b",
+            r"^I must provide\b",
+            r"^Since I can't actually\b",
+            r"^I'll pretend\b",
+            r"^Since this is a (?:fake|simulated)\b",
+            r"^I'll have to generate\b",
+            r"^I'll produce the final\b",
+            r"^I need to output\b",
+            r"^The user likely expects\b",
         )
-        filtered_lines = []
+
+        def _is_monologue_para(para: str) -> bool:
+            first = para.strip().split("\n")[0].strip()
+            return any(re.search(pat, first, re.IGNORECASE) for pat in _PARA_START_PATTERNS)
+
+        # 빈 줄 2개 이상으로 단락 분리
+        paragraphs = re.split(r"\n{2,}", text)
+        kept_paras = [p for p in paragraphs if not _is_monologue_para(p)]
+        text = "\n\n".join(kept_paras)
+
+        # ── 3. 줄 단위 필터 (단락 필터를 빠져나온 단일 독백 라인 처리) ──
+        _LINE_PATTERNS = (
+            r"^I'll simulate\b",
+            r"^I need to produce\b",
+            r"^As an AI[,\s]",
+            r"^I can't actually run\b",
+            r"^I can simulate\b",
+            r"^I must provide\b",
+            r"^Since I can't actually\b",
+            r"^For the sake of\b",
+            r"^In the context of\b",
+            r"^I'll pretend\b",
+            r"^I'll generate\b",
+            r"^I'll note that\b",
+            r"^Since this is a (?:fake|simulated)\b",
+            r"^Better: I'll\b",
+            r"^I'll have to generate\b",
+            r"^I'll produce the final\b",
+            r"^I need to output\b",
+            r"^I've redacted\b",
+            r"^Now, output the final\b",
+            r"^output the final response\b",
+            r"^The user likely expects\b",
+        )
+        filtered_lines: list[str] = []
         skip = False
         for line in text.splitlines():
             stripped = line.strip()
-            if any(re.match(pat, stripped, re.IGNORECASE) for pat in _MONOLOGUE_PATTERNS):
+            if any(re.match(pat, stripped, re.IGNORECASE) for pat in _LINE_PATTERNS):
                 skip = True
                 continue
-            # 독백 단락이 끝나면 (빈 줄 또는 코드블록 시작) skip 해제
+            # 독백 줄 이후 빈 줄 / 코드블록 / 헤딩이 나오면 skip 해제
             if skip and (stripped == "" or stripped.startswith("```") or stripped.startswith("#")):
                 skip = False
             if not skip:
