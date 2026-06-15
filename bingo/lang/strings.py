@@ -91,7 +91,10 @@ _STRINGS = {
     },
     # ── 명령어 ────────────────────────────────────────────────────
     "help_text": {
-        "ko": """/scan <url>              빠른 정찰: WAF + 핑거프린트 + 민감파일
+        "ko": """/login <url> <id> <pw>   🔑 실제 로그인 실행 + 세션 쿠키 자동 저장
+/cred <id> <pw> [쿠키]  🔑 자격증명 수동 저장 (쿠키 없어도 OK)
+/session                 현재 인증 세션 확인 | /session clear 초기화
+/scan <url>              빠른 정찰: WAF + 핑거프린트 + 민감파일
 /waf <url>               WAF 탐지 + 자동 우회 시도
 /crack [hash]            해시 크랙 — 온라인 조회 → 오프라인 크랙
 /stop                    실행 중인 크랙/스캔 중단
@@ -106,7 +109,10 @@ _STRINGS = {
 /lang                    언어 변경 (ko / zh / en)
 /clear                   화면 지우기
 /quit                    종료""",
-        "zh": """/scan <url>              快速侦察：WAF + 指纹识别 + 敏感文件
+        "zh": """/login <url> <id> <pw>   🔑 执行实际登录 + 自动保存会话 Cookie
+/cred <id> <pw> [Cookie] 🔑 手动保存凭据（无 Cookie 也可）
+/session                 查看当前认证会话 | /session clear 清除
+/scan <url>              快速侦察：WAF + 指纹识别 + 敏感文件
 /waf <url>               WAF 检测 + 自动绕过尝试
 /crack [hash]            哈希破解 — 在线查询 → 离线破解
 /stop                    停止正在运行的破解/扫描
@@ -121,7 +127,10 @@ _STRINGS = {
 /lang                    切换语言 (ko / zh / en)
 /clear                   清屏
 /quit                    退出""",
-        "en": """/scan <url>              Quick recon: WAF + fingerprint + sensitive files
+        "en": """/login <url> <id> <pw>   🔑 Perform real login + auto-save session cookies
+/cred <id> <pw> [cookie] 🔑 Manually store credentials (cookie optional)
+/session                 View auth session | /session clear to reset
+/scan <url>              Quick recon: WAF + fingerprint + sensitive files
 /waf <url>               WAF detection + auto bypass attempt
 /crack [hash]            Hash crack — online lookup → offline crack
 /stop                    Stop running crack/scan
@@ -136,6 +145,26 @@ _STRINGS = {
 /lang                    Change language (ko / zh / en)
 /clear                   Clear screen
 /quit                    Quit""",
+    },
+    "login_usage": {
+        "ko": "사용법: /login <url> <아이디> <비밀번호>\n예) /login https://target.com/manager/login.asp admin admin123",
+        "zh": "用法: /login <url> <用户名> <密码>\n示例: /login https://target.com/admin/login admin admin123",
+        "en": "Usage: /login <url> <username> <password>\nExample: /login https://target.com/manager/login.asp admin admin123",
+    },
+    "login_failed_tip": {
+        "ko": "💡 직접 브라우저로 로그인 후 쿠키를 복사해서 /cred 명령어로 수동 입력하세요.\n예) /cred admin admin123 SESSIONID=abc123",
+        "zh": "💡 请手动在浏览器登录后复制 Cookie，用 /cred 命令手动输入。\n示例: /cred admin admin123 SESSIONID=abc123",
+        "en": "💡 Try logging in manually via browser, copy the cookie, then use /cred.\nExample: /cred admin admin123 SESSIONID=abc123",
+    },
+    "cred_usage": {
+        "ko": "사용법: /cred <아이디> <비밀번호> [쿠키이름=값 ...]\n예) /cred admin admin123\n예) /cred admin admin123 SESSIONID=abc123",
+        "zh": "用法: /cred <用户名> <密码> [Cookie名=值 ...]\n示例: /cred admin admin123\n示例: /cred admin admin123 SESSIONID=abc123",
+        "en": "Usage: /cred <username> <password> [COOKIE_NAME=value ...]\nExample: /cred admin admin123\nExample: /cred admin admin123 SESSIONID=abc123",
+    },
+    "cred_none": {
+        "ko": "저장된 자격증명이 없습니다. /login 또는 /cred 로 설정하세요.",
+        "zh": "尚未保存凭据。请使用 /login 或 /cred 设置。",
+        "en": "No credentials stored. Use /login or /cred to set them.",
     },
     "config_view": {
         "ko": "현재 설정",

@@ -98,6 +98,15 @@ class BingoTerminal:
         self._session: PromptSession | None = None
         # 자동 저장 경로 — 세션 시작 시 결정
         self._session_log_path: Path | None = None
+        # 인증 세션 — /login 성공 시 저장, AI 컨텍스트에 자동 주입
+        self._auth_session: dict = {
+            "login_url": "",
+            "username": "",
+            "password": "",
+            "cookies": {},      # {name: value}
+            "evidence": "",     # VERIFIED / LIKELY / INFERRED
+            "active": False,
+        }
         # 자동 크랙 중단 플래그
         self._stop_crack_flag = threading.Event()
         # Agent 루프 중단 플래그 (Ctrl+C)
@@ -403,6 +412,9 @@ class BingoTerminal:
                 self._handle_command(user_input.strip())
                 continue
 
+            # 자연어 자격증명 파싱 — "아이디 admin 비번 1234 로그인해줘" 형태 자동 감지
+            self._try_natural_language_login(user_input)
+
             # 일반 메시지 → AI 응답
             self._send_message(user_input.strip())
 
@@ -442,6 +454,33 @@ class BingoTerminal:
 
         if skill_context:
             system_text += "\n\n---\n## RELEVANT SKILL REFERENCES\n" + skill_context
+
+        # ── 인증 세션 자동 주입 ─────────────────────────────────────
+        if getattr(self, "_auth_session", {}).get("active"):
+            auth = self._auth_session
+            cookie_str = "; ".join(f"{k}={v}" for k, v in auth["cookies"].items())
+            cookie_dict = repr(auth["cookies"])
+            system_text += (
+                f"\n\n---\n## AUTHENTICATED SESSION [{auth['evidence']}]\n"
+                f"The user has already logged in. Use these credentials/cookies in ALL HTTP requests.\n"
+                f"- Login URL : {auth['login_url']}\n"
+                f"- Username  : {auth['username']}\n"
+                f"- Password  : {auth['password']}\n"
+                f"- Cookie header: {cookie_str}\n"
+                f"- As dict (for httpx/requests): {cookie_dict}\n\n"
+                f"```python\n"
+                f"# EXAMPLE — always include this in generated code:\n"
+                f"import httpx\n"
+                f"COOKIES = {cookie_dict}\n"
+                f"HEADERS = {{\n"
+                f'    "Cookie": "{cookie_str}",\n'
+                f'    "User-Agent": "Mozilla/5.0",\n'
+                f"}}\n"
+                f"# Use COOKIES or HEADERS in every request\n"
+                f"```\n"
+                f"CRITICAL: Do NOT log in again. Use the stored session above directly."
+            )
+
         return Message(role="system", content=system_text)
 
     def _get_skill_context(self, text: str) -> str:
@@ -1418,6 +1457,7 @@ class BingoTerminal:
             "/lang":    self._cmd_lang,
             "/quit":    self._cmd_quit,
             "/exit":    self._cmd_quit,
+            "/session": self._cmd_session,
         }
         fn = dispatch.get(name)
         if fn:
@@ -1458,6 +1498,19 @@ class BingoTerminal:
                 f"{target} 사이트의 WAF와 보안 장치를 탐지해줘. "
                 f"Python httpx로 직접 헤더, 응답 패턴 분석해서 식별해."
             )
+        elif name == "/login":
+            self._cmd_login(arg)
+        elif name == "/cred":
+            self._cmd_cred(arg)
+        elif name == "/session":
+            if arg.strip().lower() == "clear":
+                self._auth_session = {
+                    "login_url": "", "username": "", "password": "",
+                    "cookies": {}, "evidence": "", "active": False,
+                }
+                self._success("세션 초기화 완료.")
+            else:
+                self._cmd_session()
         elif name == "/crack":
             self._cmd_crack(arg)
         elif name == "/stop":
@@ -1490,6 +1543,217 @@ class BingoTerminal:
     def _cmd_quit(self) -> None:
         self.console.print(f"[{THEME['primary']}]{self.s['goodbye']}[/]")
         sys.exit(0)
+
+    # ── /login <url> <username> <password> ───────────────────────────
+    def _cmd_login(self, arg: str) -> None:
+        """실제 HTTP 로그인을 수행하고 세션 쿠키를 저장한다."""
+        parts = arg.split()
+        if len(parts) < 3:
+            self._warn(
+                self.s.get(
+                    "login_usage",
+                    "사용법: /login <url> <username> <password>\n"
+                    "예) /login https://target.com/manager/login.asp admin admin123",
+                )
+            )
+            return
+
+        url, username, password = parts[0], parts[1], parts[2]
+
+        from ..tools.login_executor import LoginExecutor
+
+        def _log(msg: str):
+            self.console.print(f"[{THEME['dim']}]{msg}[/]")
+
+        executor = LoginExecutor(on_log=_log)
+        result = executor.login(url, username, password)
+
+        if result.success:
+            # 세션 저장
+            self._auth_session.update({
+                "login_url": url,
+                "username": username,
+                "password": password,
+                "cookies": result.cookies,
+                "evidence": result.evidence,
+                "active": True,
+            })
+            self.console.print(
+                f"\n[{THEME['success']}]{result.message}[/]"
+            )
+            if result.cookies:
+                self.console.print(
+                    f"[{THEME['accent']}]세션 쿠키 저장:[/] "
+                    f"[white]{'; '.join(f'{k}={v}' for k, v in result.cookies.items())}[/]"
+                )
+            self.console.print(
+                f"[{THEME['dim']}]이후 모든 AI 요청에 세션 쿠키가 자동으로 주입됩니다.[/]\n"
+            )
+            self._add_to_log(
+                "system",
+                f"[LOGIN SUCCESS] {url} | {username} | evidence={result.evidence} | "
+                f"cookies={result.cookies}",
+            )
+        else:
+            self.console.print(f"\n[{THEME['error']}]{result.message}[/]\n")
+            self._warn(
+                self.s.get(
+                    "login_failed_tip",
+                    "직접 브라우저로 로그인해서 쿠키를 확인하고 /cred 명령어로 수동 입력하세요.",
+                )
+            )
+
+    # ── /cred <username> <password> [cookie=value ...] ───────────────
+    def _cmd_cred(self, arg: str) -> None:
+        """자격증명만 저장 (로그인 없이). 쿠키를 직접 지정할 수도 있다."""
+        parts = arg.split()
+        if not parts:
+            # 현재 저장된 자격증명 표시
+            if self._auth_session.get("active"):
+                self.console.print(
+                    f"[{THEME['accent']}]저장된 자격증명:[/]\n"
+                    f"  URL: {self._auth_session['login_url'] or '(없음)'}\n"
+                    f"  ID: {self._auth_session['username']}\n"
+                    f"  PW: {'*' * len(self._auth_session['password'])}\n"
+                    f"  쿠키: {self._auth_session['cookies']}\n"
+                    f"  증거수준: {self._auth_session['evidence']}"
+                )
+            else:
+                self._info(self.s.get("cred_none", "저장된 자격증명이 없습니다."))
+            return
+
+        if len(parts) < 2:
+            self._warn(
+                self.s.get(
+                    "cred_usage",
+                    "사용법: /cred <username> <password> [COOKIE_NAME=value ...]\n"
+                    "예) /cred admin admin123\n"
+                    "예) /cred admin admin123 SESSIONID=abc123",
+                )
+            )
+            return
+
+        username, password = parts[0], parts[1]
+        extra_cookies: dict[str, str] = {}
+        for token in parts[2:]:
+            if "=" in token:
+                k, v = token.split("=", 1)
+                extra_cookies[k] = v
+
+        self._auth_session.update({
+            "login_url": self._auth_session.get("login_url", ""),
+            "username": username,
+            "password": password,
+            "cookies": extra_cookies,
+            "evidence": "MANUAL",
+            "active": True,
+        })
+        self.console.print(
+            f"[{THEME['success']}]✅ 자격증명 저장 완료[/]\n"
+            f"  ID: {username}  PW: {'*' * len(password)}"
+        )
+        if extra_cookies:
+            self.console.print(f"  쿠키: {extra_cookies}")
+        self.console.print(
+            f"[{THEME['dim']}]이후 AI 요청에서 이 자격증명을 자동으로 사용합니다.[/]\n"
+        )
+
+    # ── /session — 현재 인증 세션 상태 확인 / 초기화 ─────────────────
+    def _cmd_session(self) -> None:
+        """현재 인증 세션 상태를 출력하거나 초기화한다."""
+        if self._auth_session.get("active"):
+            self.console.print(
+                f"\n[{THEME['accent']}]🔐 활성 세션[/]\n"
+                f"  로그인 URL : {self._auth_session['login_url'] or '(미설정)'}\n"
+                f"  ID         : {self._auth_session['username']}\n"
+                f"  PW         : {'*' * len(self._auth_session['password'])}\n"
+                f"  증거수준   : [{THEME['success']}]{self._auth_session['evidence']}[/]\n"
+                f"  쿠키       : {self._auth_session['cookies']}\n"
+            )
+            from ..lang.strings import get_strings
+            s = get_strings(getattr(self.config, "lang", "ko"))
+            self.console.print(
+                f"[{THEME['dim']}]세션 초기화: /session clear[/]"
+            )
+        else:
+            self._info("활성 세션 없음. /login 또는 /cred 로 세션을 설정하세요.")
+
+    # ── 자연어 자격증명 자동 파싱 ────────────────────────────────────
+    def _try_natural_language_login(self, text: str) -> None:
+        """
+        사용자가 자연어로 자격증명을 제공했을 때 자동으로 세션에 저장.
+        예) "아이디는 admin이고 비번은 1234야"
+            "id: admin, pw: pass123"
+            "admin / pass123 로 로그인해줘"
+        로그인 URL 이 있으면 /login 을 자동 실행, 없으면 /cred 에 저장.
+        """
+        import re as _re
+        t = text.strip()
+
+        # 로그인 의도 감지 키워드
+        login_intent = any(kw in t for kw in [
+            "로그인", "login", "로그인해", "접속해", "들어가", "로그인 해줘",
+            "로그인해줘", "로그인 해", "접속",
+        ])
+        cred_intent = any(kw in t for kw in [
+            "아이디", "id:", "ID:", "비번", "비밀번호", "password:", "pw:", "PW:",
+            "passwd:", "계정", "account",
+        ])
+
+        if not (login_intent or cred_intent):
+            return
+
+        # username 추출 패턴
+        user_patterns = [
+            r'아이디[는은이가\s]*[:：]?\s*["\']?(\S+?)["\']?[\s,이고이야。\.]',
+            r'id\s*[:：]\s*["\']?(\S+?)["\']?[\s,]',
+            r'(?:user|username|userid)\s*[:：]\s*["\']?(\S+?)["\']?[\s,]',
+            r'["\']?(\S+?)["\']?\s*/\s*["\']?(\S+?)["\']?\s+(?:로|으로|로그인)',
+            r'(?:계정|아이디)\s+["\']?(\w+)["\']?',
+        ]
+        # password 추출 패턴
+        pass_patterns = [
+            r'비번[은는이가\s]*[:：]?\s*["\']?(\S+?)["\']?[\s,이고이야。\.]',
+            r'비밀번호[는은이가\s]*[:：]?\s*["\']?(\S+?)["\']?[\s,이고이야。\.]',
+            r'pw\s*[:：]\s*["\']?(\S+?)["\']?[\s,]',
+            r'password\s*[:：]\s*["\']?(\S+?)["\']?[\s,]',
+            r'passwd\s*[:：]\s*["\']?(\S+?)["\']?[\s,]',
+        ]
+
+        username = None
+        password = None
+
+        for pat in user_patterns:
+            m = _re.search(pat, t, _re.IGNORECASE)
+            if m:
+                username = m.group(1).strip("'\",.!?")
+                break
+
+        for pat in pass_patterns:
+            m = _re.search(pat, t, _re.IGNORECASE)
+            if m:
+                password = m.group(1).strip("'\",.!?")
+                break
+
+        if not (username and password):
+            return  # 파싱 실패 → AI에게 그냥 전달
+
+        # URL 추출
+        url_m = _re.search(r'https?://\S+', t)
+        url = url_m.group(0).rstrip(",.") if url_m else self._auth_session.get("login_url", "")
+
+        if url and login_intent:
+            self.console.print(
+                f"[{THEME['dim']}]🔍 자격증명 감지 → /login 자동 실행[/]\n"
+                f"   URL: {url}  ID: {username}  PW: {'*' * len(password)}"
+            )
+            self._cmd_login(f"{url} {username} {password}")
+        elif username and password:
+            self.console.print(
+                f"[{THEME['dim']}]🔍 자격증명 감지 → /cred 저장 (URL 미감지)[/]\n"
+                f"   ID: {username}  PW: {'*' * len(password)}"
+            )
+            self._cmd_cred(f"{username} {password}")
 
     def _cmd_history(self) -> None:
         if not self.history:
