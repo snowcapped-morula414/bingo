@@ -370,6 +370,7 @@ _STRINGS = {
     "cli_help_skill_search":{"ko": "스킬 검색",   "zh": "搜索技能",     "en": "Search skills"},
     "cli_help_reset":   {"ko": "설정 초기화",   "zh": "重置配置",     "en": "Reset config"},
     "cli_help_version": {"ko": "버전 표시",     "zh": "显示版本",     "en": "Show version"},
+    "cli_help_update":  {"ko": "최신 버전으로 업데이트 (PyPI)", "zh": "升级到最新版本 (PyPI)", "en": "Update to latest version (PyPI)"},
     "cli_help_output":  {"ko": "보고서 저장 위치", "zh": "报告保存位置","en": "Report save path"},
     "cli_help_phase":   {"ko": "실행할 단계 선택", "zh": "选择执行阶段","en": "Select phases to run"},
     "crawling":            {"ko": "🔍 사이트 크롤 중...", "zh": "🔍 站点抓取中...", "en": "🔍 Crawling site..."},

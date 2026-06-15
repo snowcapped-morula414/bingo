@@ -218,6 +218,111 @@ def _run_waf_test(target: str, s: dict | None = None) -> None:
         console.print(f"[#00ff41]{s['cli_waf_none']}[/]")
 
 
+CURRENT_VERSION = "2.1.3"
+PYPI_PACKAGE    = "bingo-ai"
+PYPI_JSON_URL   = f"https://pypi.org/pypi/{PYPI_PACKAGE}/json"
+
+
+def _run_update(sl: dict, lang: str = "en") -> None:
+    """
+    bingo --update
+    1) PyPI에서 최신 버전 확인
+    2) 현재 버전과 비교
+    3) 업데이트가 있으면 pip install --upgrade 실행
+    macOS / Windows / Linux 공통 동작
+    """
+    import sys, subprocess, json as _json
+
+    _labels = {
+        "ko": {
+            "checking":   "📡 최신 버전 확인 중...",
+            "latest":     "✅ 이미 최신 버전입니다",
+            "found":      "🆕 새 버전 발견",
+            "upgrading":  "⬆  업그레이드 중",
+            "done":       "✅ 업데이트 완료! 변경 사항을 적용하려면 bingo 를 재시작하세요.",
+            "fail_pip":   "❌ pip 업그레이드 실패 — 아래 명령어를 직접 실행하세요:",
+            "fail_pypi":  "⚠  PyPI 버전 확인 실패 — 수동으로 업그레이드하세요:",
+            "manual":     f"    pip install --upgrade {PYPI_PACKAGE}",
+        },
+        "zh": {
+            "checking":   "📡 正在检查最新版本...",
+            "latest":     "✅ 已是最新版本",
+            "found":      "🆕 发现新版本",
+            "upgrading":  "⬆  正在升级",
+            "done":       "✅ 更新完成！请重新启动 bingo 以应用更改。",
+            "fail_pip":   "❌ pip 升级失败 — 请手动运行以下命令:",
+            "fail_pypi":  "⚠  无法检查 PyPI 版本 — 请手动升级:",
+            "manual":     f"    pip install --upgrade {PYPI_PACKAGE}",
+        },
+        "en": {
+            "checking":   "📡 Checking for latest version...",
+            "latest":     "✅ Already up to date",
+            "found":      "🆕 New version available",
+            "upgrading":  "⬆  Upgrading",
+            "done":       "✅ Update complete! Restart bingo to apply changes.",
+            "fail_pip":   "❌ pip upgrade failed — run manually:",
+            "fail_pypi":  "⚠  Could not check PyPI — upgrade manually:",
+            "manual":     f"    pip install --upgrade {PYPI_PACKAGE}",
+        },
+    }
+    lb = _labels.get(lang, _labels["en"])
+
+    # ── 1. PyPI에서 최신 버전 조회 ─────────────────────────────────
+    console.print(f"[#00d4aa]{lb['checking']}[/]")
+    try:
+        import urllib.request, urllib.error
+        req = urllib.request.Request(
+            PYPI_JSON_URL,
+            headers={"User-Agent": f"bingo-updater/{CURRENT_VERSION}"},
+        )
+        with urllib.request.urlopen(req, timeout=8) as resp:
+            data = _json.loads(resp.read())
+        latest_ver = data["info"]["version"]
+    except Exception as exc:
+        console.print(f"[#ff4444]{lb['fail_pypi']}[/]")
+        console.print(f"[#4a4a4a]{lb['manual']}[/]")
+        return
+
+    # ── 2. 버전 비교 (packaging 없어도 동작하는 튜플 비교) ──────────
+    def _ver_tuple(v: str):
+        try:
+            return tuple(int(x) for x in v.split("."))
+        except ValueError:
+            return (0, 0, 0)
+
+    cur_t   = _ver_tuple(CURRENT_VERSION)
+    latest_t = _ver_tuple(latest_ver)
+
+    if latest_t <= cur_t:
+        console.print(
+            f"[#00ff41]{lb['latest']}[/] "
+            f"[#4a4a4a](v{CURRENT_VERSION})[/]"
+        )
+        return
+
+    console.print(
+        f"[#ffaa00]{lb['found']}:[/] "
+        f"[#4a4a4a]v{CURRENT_VERSION}[/] → [#00ff41]v{latest_ver}[/]"
+    )
+    console.print(f"[#00d4aa]{lb['upgrading']} {PYPI_PACKAGE}=={latest_ver} ...[/]\n")
+
+    # ── 3. pip upgrade 실행 ─────────────────────────────────────────
+    # sys.executable 을 사용해야 현재 가상환경의 pip 이 실행됨
+    pip_cmd = [sys.executable, "-m", "pip", "install", "--upgrade", PYPI_PACKAGE]
+
+    try:
+        result = subprocess.run(
+            pip_cmd,
+            check=True,
+        )
+        console.print(f"\n[#00ff41]{lb['done']}[/]")
+    except subprocess.CalledProcessError:
+        console.print(f"\n[#ff4444]{lb['fail_pip']}[/]")
+        # 사용자가 직접 복붙할 수 있는 명령어 출력
+        cmd_str = " ".join(pip_cmd)
+        console.print(f"[#4a4a4a]  {cmd_str}[/]")
+
+
 def main() -> None:
     """bingo 명령어 진입점"""
     args = sys.argv[1:]
@@ -284,7 +389,7 @@ def main() -> None:
         return
 
     # ── 도움말 ───────────────────────────────────────────────────
-    if args and args[0] in ("-h", "--help"):
+    if args and args[0] in ("-h", "--help", "help"):
         console.print(BANNER_SMALL)
         console.print()
         console.print("  [#00d4aa]Usage:[/]")
@@ -297,7 +402,9 @@ def main() -> None:
         console.print(f"    [white]bingo skill search <keyword>[/] {sl['cli_help_skill_search']}")
         console.print()
         console.print("  [#4a4a4a]Options:[/]")
-        console.print(f"    [#00d4aa]--reset[/]   {sl['cli_help_reset']}  |  [#00d4aa]--version[/]  {sl['cli_help_version']}")
+        console.print(f"    [#00d4aa]--reset[/]    {sl['cli_help_reset']}")
+        console.print(f"    [#00d4aa]--version[/]  {sl['cli_help_version']}")
+        console.print(f"    [#00d4aa]--update[/]   {sl.get('cli_help_update', 'Check for updates and upgrade to latest version')}")
         console.print()
         console.print("  [#4a4a4a]scan:[/]")
         console.print(f"    [#00d4aa]--output ./reports[/]       {sl['cli_help_output']}")
@@ -305,7 +412,11 @@ def main() -> None:
         return
 
     if args and args[0] == "--version":
-        console.print("[#00ff41]bingo[/] v2.1.0 — Official Release")
+        console.print("[#00ff41]bingo[/] v2.1.3 — Official Release")
+        return
+
+    if args and args[0] == "--update":
+        _run_update(get_strings(_cfg_for_lang.lang), _cfg_for_lang.lang)
         return
 
     # ── 설정 로드 / 첫 실행 온보딩 ───────────────────────────────
